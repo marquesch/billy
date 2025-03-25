@@ -1,0 +1,7 @@
+.idea
+.tool-versions
+storage/*
+__pycache__
+.vscode
+.venv
+.env
