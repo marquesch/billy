@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Optional
 
-from billy.model import Bill
-from billy.model import Category
-from billy.model import Tenant
-from billy.model import User
+from src.model import Bill
+from src.model import Category
+from src.model import Tenant
+from src.model import User
 
 from sqlalchemy import delete
 from sqlalchemy import func

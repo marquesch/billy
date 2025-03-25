@@ -5,23 +5,24 @@ import logging
 import os
 import sys
 
-from billy.amqp import AMQPClient
-from billy.cfg.database import SessionLocal
-from billy.cfg.database import init_db
-from billy.libs.ai import close_httpx_client
-from billy.libs.ai import get_bill_to_register
-from billy.libs.ai import get_bills_to_sum_query_data
-from billy.libs.ai import get_category_to_register
-from billy.libs.ai import get_user_intent
-from billy.repository import BillRepository
-from billy.repository import CategoryRepository
-from billy.repository import TenantRepository
-from billy.repository import UserRepository
-from billy.schema import ReceiveMessagePayload
-from billy.schema import SendMessagePayload
-from billy.util import formatted_date
-
 import aio_pika
+from src.amqp import AMQPClient
+from src.cfg.database import RedisClient
+from src.cfg.database import SessionLocal
+from src.cfg.database import init_db
+from src.libs.ai import close_httpx_client
+from src.libs.ai import get_bill_to_register
+from src.libs.ai import get_bills_to_sum_query_data
+from src.libs.ai import get_category_to_register
+from src.libs.ai import get_user_intent
+from src.libs.step import Step
+from src.repository import BillRepository
+from src.repository import CategoryRepository
+from src.repository import TenantRepository
+from src.repository import UserRepository
+from src.schema import ReceiveMessagePayload
+from src.schema import SendMessagePayload
+from src.util import formatted_date
 
 AMQP_HOST = os.getenv("AMQP_HOST", "rabbitmq")
 AMQP_PORT = int(os.getenv("AMQP_PORT", 5672))
@@ -51,6 +52,7 @@ class MessageProcessor:
         self.receive_queue = receive_queue
         self.send_queue = send_queue
         self.session_factory = session_factory
+        self.redis_client = RedisClient()
 
     async def start(self):
         await self.client.connect()
@@ -65,36 +67,64 @@ class MessageProcessor:
 
             logging.info(f"{message_payload.transaction_id} - Got message")
 
-            logging.info(f"{message_payload.transaction_id} - Checking user intent")
-            with self.session_factory() as session:
-                user_repo = UserRepository(session)
-
-                user = user_repo.get_by_phone_number(message_payload.sender_number)
-
-                if user is None:
-                    logging.info(
-                        f"{message_payload.transaction_id} - User isn't registered. Registering user"
-                    )
-
-                    user = self._register_user(session, message_payload.sender_number)
-
-                response_text = await self._handle_intent(
-                    session, message_payload, user
-                )
-
-            response_payload = SendMessagePayload(
-                message_type="text",
-                recipient_number=message_payload.sender_number,
-                message_body=response_text,
-                transaction_id=message_payload.transaction_id,
-                quoted_message_id=message_payload.message_id,
+            session_info = self.redis_client.get(
+                f"{message_payload.sender_number}:session_info", {}
             )
 
-            body = json.dumps(response_payload.model_dump())
+            current_step = Step(session_info, message_payload.sender_number).process(
+                message_payload.message_body
+            )
 
-            logging.info(f"{message_payload.transaction_id} - Sending back message")
+            if current_step.message is not None:
+                response_payload = SendMessagePayload(
+                    message_type="text",
+                    recipient_number=message_payload.sender_number,
+                    message_body=current_step.message,
+                    transaction_id=message_payload.transaction_id,
+                    quoted_message_id=message_payload.message_id,
+                )
 
-            await self.client.publish(body, self.send_queue)
+                body = json.dumps(response_payload.model_dump())
+
+                logging.info(f"{message_payload.transaction_id} - Sending back message")
+
+                await self.client.publish(body, self.send_queue)
+
+            self.redis_client.set(
+                f"{message_payload.sender_number}:session_info",
+                current_step.session_info,
+            )
+
+            # logging.info(f"{message_payload.transaction_id} - Checking user intent")
+            # with self.session_factory() as session:
+            #     user_repo = UserRepository(session)
+
+            #     user = user_repo.get_by_phone_number(message_payload.sender_number)
+
+            #     if user is None:
+            #         logging.info(
+            #             f"{message_payload.transaction_id} - User isn't registered. Registering user"
+            #         )
+
+            #         user = self._register_user(session, message_payload.sender_number)
+
+            #     response_text = await self._handle_intent(
+            #         session, message_payload, user
+            #     )
+
+            # response_payload = SendMessagePayload(
+            #     message_type="text",
+            #     recipient_number=message_payload.sender_number,
+            #     message_body=response_text,
+            #     transaction_id=message_payload.transaction_id,
+            #     quoted_message_id=message_payload.message_id,
+            # )
+
+            # body = json.dumps(response_payload.model_dump())
+
+            # logging.info(f"{message_payload.transaction_id} - Sending back message")
+
+            # await self.client.publish(body, self.send_queue)
 
     async def _register_bill(self, session, message_payload, tenant_id):
         category_repo = CategoryRepository(session, tenant_id)
@@ -159,10 +189,14 @@ class MessageProcessor:
                 category = await self._register_category(
                     session, message_payload, tenant_id
                 )
-                
-                response_text = f"*Category created*\n"
+
+                response_text = "*Category created*\n"
                 if category.description is not None:
-                    description = category.description if category.description is not None else 'null'
+                    description = (
+                        category.description
+                        if category.description is not None
+                        else "null"
+                    )
                     response_text += f"*```Description```*```   {description}```"
 
             case "sum_bills":
@@ -218,10 +252,8 @@ class MessageProcessor:
         category = category_repo.create(
             category_dict["name"], category_dict["description"]
         )
-        
-        return category
 
-        
+        return category
 
     def _register_user(self, session, number):
         tenant_repo = TenantRepository(session)

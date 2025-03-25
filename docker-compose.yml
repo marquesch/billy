@@ -16,7 +16,7 @@ services:
       retries: 5
 
   postgres:
-    image: postgres:17.4
+    image: postgres:latest
     environment:
       POSTGRES_USER: billy
       POSTGRES_PASSWORD: billy
@@ -25,21 +25,31 @@ services:
       - billy_network
     volumes:
       - "~/.billy/postgres:/var/lib/postgresql/data"
-  
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - billy_network
+    restart: always
+      
+
   billy:
     build:
       context: .
-      dockerfile: Dockerfile.billy
+      dockerfile: Dockerfile
     env_file: .env
     networks:
       - billy_network
     depends_on:
       - postgres
       - rabbitmq
+      - redis
     restart: unless-stopped
     volumes:
       - ".:/app"
 
 networks:
   billy_network:
-    driver: bridge
+    external: true

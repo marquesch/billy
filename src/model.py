@@ -56,7 +56,8 @@ class User(DeclarativeBaseModel):
     __tablename__ = "user"
 
     id = Column(Integer, primary_key=True)
+    name = Column(String(80))
     tenant_id = Column(Integer, ForeignKey("tenant.id"))
-    phone_number = Column(String)
+    phone_number = Column(String(20))
 
     tenant = relationship("Tenant", back_populates="users")

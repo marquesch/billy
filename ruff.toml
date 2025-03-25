@@ -1,5 +1,5 @@
 # Exclude a variety of commonly ignored directories.
-src = ["./python"]
+src = ["./src"]
 
 exclude = [
     ".bzr",
