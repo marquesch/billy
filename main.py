@@ -1,9 +1,7 @@
 import asyncio
 from datetime import datetime
 import json
-import logging
 import os
-import sys
 
 import aio_pika
 from src.amqp import AMQPClient
@@ -22,6 +20,7 @@ from src.repository import TenantRepository
 from src.repository import UserRepository
 from src.schema import ReceiveMessagePayload
 from src.schema import SendMessagePayload
+from src.util import Logger
 from src.util import formatted_date
 
 AMQP_HOST = os.getenv("AMQP_HOST", "rabbitmq")
@@ -32,12 +31,6 @@ AMQP_PASSWORD = os.getenv("AMQP_PASSWORD", "billy")
 
 AMQP_RECEIVE_MESSAGE_QUEUE = "q.message.receive"
 AMQP_SEND_MESSAGE_QUEUE = "q.message.send"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
 
 
 class MessageProcessor:
@@ -53,27 +46,32 @@ class MessageProcessor:
         self.send_queue = send_queue
         self.session_factory = session_factory
         self.redis_client = RedisClient()
+        self.logger = Logger()
 
     async def start(self):
         await self.client.connect()
         await self.client.consume(self.receive_queue, self._process_message)
-        logging.info("Started consuming messages")
+        self.logger.info("Started consuming messages")
         await asyncio.Future()
 
     async def _process_message(self, message: aio_pika.IncomingMessage):
         async with message.process():
             message_data = json.loads(message.body)
             message_payload = ReceiveMessagePayload(**message_data)
+            transaction_logger = Logger(message_payload.transaction_id)
 
-            logging.info(f"{message_payload.transaction_id} - Got message")
+            transaction_logger.info("Got message")
+
+            transaction_logger.info("Checking session info on redis")
 
             session_info = self.redis_client.get(
                 f"{message_payload.sender_number}:session_info", {}
             )
 
-            current_step = Step(session_info, message_payload.sender_number).process(
-                message_payload.message_body
-            )
+            transaction_logger.info("Loading step")
+            current_step = Step(
+                session_info, message_payload.sender_number, transaction_logger
+            ).process(message_payload.message_body)
 
             if current_step.message is not None:
                 response_payload = SendMessagePayload(
@@ -86,23 +84,24 @@ class MessageProcessor:
 
                 body = json.dumps(response_payload.model_dump())
 
-                logging.info(f"{message_payload.transaction_id} - Sending back message")
+                transaction_logger.info("Sending back message")
 
                 await self.client.publish(body, self.send_queue)
 
+            transaction_logger.info("Saving session info on redis")
             self.redis_client.set(
                 f"{message_payload.sender_number}:session_info",
                 current_step.session_info,
             )
 
-            # logging.info(f"{message_payload.transaction_id} - Checking user intent")
+            # self.logger.info(f"{message_payload.transaction_id} - Checking user intent")
             # with self.session_factory() as session:
             #     user_repo = UserRepository(session)
 
             #     user = user_repo.get_by_phone_number(message_payload.sender_number)
 
             #     if user is None:
-            #         logging.info(
+            #         self.logger.info(
             #             f"{message_payload.transaction_id} - User isn't registered. Registering user"
             #         )
 
@@ -122,7 +121,7 @@ class MessageProcessor:
 
             # body = json.dumps(response_payload.model_dump())
 
-            # logging.info(f"{message_payload.transaction_id} - Sending back message")
+            # self.logger.info(f"{message_payload.transaction_id} - Sending back message")
 
             # await self.client.publish(body, self.send_queue)
 
@@ -172,7 +171,7 @@ class MessageProcessor:
 
         match user_intent:
             case "register_bill":
-                logging.info(f"{message_payload.transaction_id} - Registering bill")
+                self.logger.info(f"{message_payload.transaction_id} - Registering bill")
 
                 bill = await self._register_bill(session, message_payload, tenant_id)
 
@@ -184,7 +183,9 @@ class MessageProcessor:
                 )
 
             case "register_category":
-                logging.info(f"{message_payload.transaction_id} - Registering category")
+                self.logger.info(
+                    f"{message_payload.transaction_id} - Registering category"
+                )
 
                 category = await self._register_category(
                     session, message_payload, tenant_id
@@ -200,7 +201,7 @@ class MessageProcessor:
                     response_text += f"*```Description```*```   {description}```"
 
             case "sum_bills":
-                logging.info(f"{message_payload.transaction_id} - Summing bills")
+                self.logger.info(f"{message_payload.transaction_id} - Summing bills")
 
                 sum, category_name, from_, until = await self._sum_bills(
                     session, message_payload.message_body, tenant_id
@@ -219,7 +220,7 @@ class MessageProcessor:
                 )
 
             case "delete_bill":
-                logging.info(f"{message_payload.transaction_id} - Deleting bill")
+                self.logger.info(f"{message_payload.transaction_id} - Deleting bill")
                 bill_repo = BillRepository(session, tenant_id)
 
                 bill_to_delete = bill_repo.get_by_message_id(
@@ -288,7 +289,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.info("Initializing database")
     init_db()
     asyncio.run(main())
     close_httpx_client()

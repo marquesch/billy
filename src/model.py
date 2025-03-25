@@ -4,6 +4,8 @@ from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import String
+from sqlalchemy import and_
+from sqlalchemy import select
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 
@@ -23,6 +25,14 @@ class Category(DeclarativeBaseModel):
     bills = relationship("Bill", back_populates="category")
     tenant = relationship("Tenant", back_populates="categories")
 
+    @classmethod
+    def get_all(cls, session, tenant_id):
+        return (
+            session.execute(select(cls).where(cls.tenant_id == tenant_id))
+            .scalars()
+            .all()
+        )
+
     def to_dict(self):
         return dict(id=self.id, name=self.name, description=self.description)
 
@@ -41,14 +51,27 @@ class Bill(DeclarativeBaseModel):
     category = relationship("Category", back_populates="bills")
     tenant = relationship("Tenant", back_populates="bills")
 
+    @classmethod
+    def get_many(cls, session, tenant_id, date=None, date_range=None, category=None):
+        filters = [cls.tenant_id == tenant_id]
+
+        if date is not None:
+            filters.append(cls.date == date)
+
+        elif date_range is not None:
+            filters.append(cls.date.between(date_range))
+
+        if category is not None:
+            filters.append(cls.category_id == category)
+
+        return session.execute(select(cls).where(and_(*filters))).scalars()
+
 
 class Tenant(DeclarativeBaseModel):
     __tablename__ = "tenant"
 
     id = Column(Integer, primary_key=True)
 
-    categories = relationship("Category", back_populates="tenant")
-    bills = relationship("Bill", back_populates="tenant")
     users = relationship("User", back_populates="tenant")
 
 
