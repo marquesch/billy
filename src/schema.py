@@ -1,4 +1,7 @@
+from typing import Optional
+
 from pydantic import BaseModel
+from pydantic import field_validator
 
 
 class BasePayload(BaseModel):
@@ -18,4 +21,11 @@ class SendMessagePayload(MessagePayload):
 class ReceiveMessagePayload(MessagePayload):
     sender_number: str
     message_id: str
-    quoted_message_id: str
+    quoted_message_id: Optional[str] = None
+
+    @field_validator("quoted_message_id")
+    @classmethod
+    def validate_quoted_message_id(cls, v):
+        if v == "":
+            return None
+        return v

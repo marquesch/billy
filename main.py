@@ -5,14 +5,12 @@ import signal
 import time
 
 import aio_pika
-from sqlalchemy import select
 from src.amqp import AMQPClient
 from src.cfg.database import RedisClient
 from src.cfg.database import SessionLocal
 from src.cfg.database import init_db
 from src.libs.ai import close_httpx_client
 from src.libs.step import Step
-from src.model import User
 from src.schema import ReceiveMessagePayload
 from src.schema import SendMessagePayload
 from src.util import Logger
@@ -40,7 +38,7 @@ class MessageProcessor:
         self.send_queue = send_queue
         self.session_factory = session_factory
         self.redis_client = RedisClient()
-        self.logger = Logger()
+        self.logger = Logger(name="message_processor")
         self.shutdown_event = asyncio.Event()
 
     async def start(self):
@@ -58,7 +56,7 @@ class MessageProcessor:
 
         await asyncio.gather(
             self.client.close(),
-            asyncio.to_thread(self.redis_client.close),
+            asyncio.to_thread(self.redis_client.close()),
             asyncio.to_thread(close_httpx_client),
         )
 
@@ -79,61 +77,28 @@ class MessageProcessor:
                 f"{message_payload.sender_number}:session_info", {}
             )
 
-            token_usage_data = self.redis_client.get_many(
-                f"{message_payload.sender_number}:token_usage:*"
-            )
-
-            user = (
-                self.session_factory()
-                .execute(
-                    select(User).where(
-                        User.phone_number == message_payload.sender_number
-                    )
-                )
-                .scalar_one_or_none()
-            )
-
-            response_body = None
-
-            if (
-                user is not None
-                and len(token_usage_data) >= user.max_questions_per_hour
-            ):
-                oldest_token_usage = min(map(float, token_usage_data))
-
-                response_body = (
-                    "Sorry, but you hit your limit of questions "
-                    "per hour. Please try again in "
-                    f"{oldest_token_usage - time.time():.0f} seconds."
-                )
-
-            else:
-                transaction_logger.info("Loading step")
+            transaction_logger.info("Loading step")
+            with self.session_factory() as session:
                 current_step = await Step(
-                    session_info, message_payload, transaction_logger
+                    session_info,
+                    message_payload,
+                    session,
+                    self.redis_client,
+                    transaction_logger,
                 ).process()
 
-                response_body = current_step.response
+            transaction_logger.info("Saving session info on redis")
 
-                if current_step.used_ai:
-                    transaction_logger.info("Saving ai usage on redis")
-                    self.redis_client.set(
-                        f"{message_payload.sender_number}:token_usage:{message_payload.transaction_id}",
-                        time.time() + 3600,
-                    )
+            self.redis_client.set(
+                f"{message_payload.sender_number}:session_info",
+                current_step.session_info,
+            )
 
-                transaction_logger.info("Saving session info on redis")
-
-                self.redis_client.set(
-                    f"{message_payload.sender_number}:session_info",
-                    current_step.session_info,
-                )
-
-            if response_body is not None:
+            if current_step.response is not None:
                 response_payload = SendMessagePayload(
                     message_type="text",
                     recipient_number=message_payload.sender_number,
-                    message_body=response_body,
+                    message_body=current_step.response,
                     transaction_id=message_payload.transaction_id,
                     quoted_message_id=message_payload.message_id,
                 )
@@ -145,7 +110,7 @@ class MessageProcessor:
                 await self.client.publish(body, self.send_queue)
 
             end = time.perf_counter()
-            self.logger.info(f"Processed message in {(end - start) * 1000:.2f} ms")
+            self.logger.info(f"Message processed in {(end - start) * 1000:.2f} ms")
 
 
 if __name__ == "__main__":
@@ -161,6 +126,7 @@ if __name__ == "__main__":
         AMQP_SEND_MESSAGE_QUEUE,
         SessionLocal,
     )
+
     event_loop = asyncio.get_event_loop()
 
     event_loop.add_signal_handler(

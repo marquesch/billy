@@ -53,5 +53,16 @@ class RedisClient:
         keys = self.list_keys(pattern)
         return self.redis_client.mget(keys)
 
+    def get_ttl(self, pattern="*"):
+        keys = self.list_keys(pattern)
+        return [self.redis_client.ttl(key) for key in keys]
+
+    def get_many_with_ttl(self, pattern="*"):
+        keys = self.list_keys(pattern)
+        values = self.redis_client.mget(keys)
+        keys_ttl = [self.redis_client.ttl(key) for key in keys]
+
+        return values, keys_ttl
+
     def close(self):
         self.redis_client.close()

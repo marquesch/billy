@@ -9,16 +9,29 @@ logging.basicConfig(
 )
 
 
-class Logger:
-    def __init__(self, transaction_id=None):
-        self.logger = logging.getLogger()
-        self.transaction_id = transaction_id or ""
-
-    def set_transaction_id(self, transaction_id):
+class TransactionFilter(logging.Filter):
+    def __init__(self, transaction_id):
+        super().__init__()
         self.transaction_id = transaction_id
-        format = "%(asctime)s - %(levelname)s - %(transaction_id)s - %(message)s"
-        formatter = logging.Formatter(format)
-        self.logger.handlers[0].setFormatter(formatter)
+
+    def filter(self, record):
+        record.transaction_id = self.transaction_id
+        return True
+
+
+class Logger:
+    def __init__(self, transaction_id=None, name=None):
+        if transaction_id is not None:
+            name = "transaction_logger_" + transaction_id
+        self.logger = logging.Logger(name, level=logging.INFO)
+        self.logger.addHandler(logging.StreamHandler(sys.stdout))
+        format = "%(asctime)s - %(levelname)s - %(message)s"
+
+        if transaction_id is not None:
+            format = "%(asctime)s - %(levelname)s - %(transaction_id)s - %(message)s"
+            self.logger.addFilter(TransactionFilter(transaction_id))
+
+        self.logger.handlers[0].setFormatter(logging.Formatter(format))
 
     def log(self, level, message):
         self.logger.log(level, message)
