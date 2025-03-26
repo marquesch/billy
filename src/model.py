@@ -17,10 +17,10 @@ class DeclarativeBaseModel(DeclarativeBase):
 class Category(DeclarativeBaseModel):
     __tablename__ = "category"
 
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    description = Column(String)
-    tenant_id = Column(Integer, ForeignKey("tenant.id"))
+    id = Column(Integer, primary_key=True, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
 
     bills = relationship("Bill", back_populates="category")
     tenant = relationship("Tenant", back_populates="categories")
@@ -41,12 +41,12 @@ class Bill(DeclarativeBaseModel):
     __tablename__ = "bill"
 
     id = Column(Integer, primary_key=True)
-    value = Column(Float)
-    date = Column(DateTime)
-    original_prompt = Column(String)
-    category_id = Column(Integer, ForeignKey("category.id"))
-    tenant_id = Column(Integer, ForeignKey("tenant.id"))
-    message_id = Column(String, index=True)
+    value = Column(Float, nullable=False)
+    date = Column(DateTime, nullable=False)
+    original_prompt = Column(String, nullable=True)
+    category_id = Column(Integer, ForeignKey("category.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
+    message_id = Column(String, index=True, nullable=False)
 
     category = relationship("Category", back_populates="bills")
     tenant = relationship("Tenant", back_populates="bills")
@@ -66,21 +66,30 @@ class Bill(DeclarativeBaseModel):
 
         return session.execute(select(cls).where(and_(*filters))).scalars()
 
+    @classmethod
+    def get_by_message_id(cls, session, tenant_id, message_id):
+        return session.execute(
+            select(cls).where(cls.message_id == message_id, cls.tenant_id == tenant_id)
+        ).scalar_one_or_none()
+
 
 class Tenant(DeclarativeBaseModel):
     __tablename__ = "tenant"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, nullable=False)
 
     users = relationship("User", back_populates="tenant")
+    categories = relationship("Category", back_populates="tenant")
+    bills = relationship("Bill", back_populates="tenant")
 
 
 class User(DeclarativeBaseModel):
     __tablename__ = "user"
 
-    id = Column(Integer, primary_key=True)
-    name = Column(String(80))
-    tenant_id = Column(Integer, ForeignKey("tenant.id"))
-    phone_number = Column(String(20))
+    id = Column(Integer, primary_key=True, nullable=False)
+    name = Column(String(80), nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
+    phone_number = Column(String(20), nullable=False)
+    max_questions_per_hour = Column(Integer, nullable=False, default=10)
 
     tenant = relationship("Tenant", back_populates="users")

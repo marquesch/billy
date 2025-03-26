@@ -32,7 +32,6 @@ class RedisClient:
         self.redis_client = redis.Redis(
             host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
         )
-        self.redis_client.ping()
 
     def set(self, key, value, expiration=3600):
         self.redis_client.setex(key, expiration, json.dumps(value))
@@ -47,4 +46,12 @@ class RedisClient:
         return self.redis_client.delete(*keys)
 
     def list_keys(self, pattern="*"):
-        return self.redis_client.keys(pattern)
+        cursor, keys = self.redis_client.scan(match=pattern)
+        return keys
+
+    def get_many(self, pattern="*"):
+        keys = self.list_keys(pattern)
+        return self.redis_client.mget(keys)
+
+    def close(self):
+        self.redis_client.close()

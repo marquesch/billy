@@ -18,7 +18,7 @@ headers = {
 httpx_client = AsyncClient()
 
 
-class IntentTypes(Enum):
+class InitialIntentTypes(Enum):
     UNKNOWN = 0
     REGISTER_BILL = 1
     SUM_BILLS = 2
@@ -30,16 +30,16 @@ def get_now():
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def get_intent_system_prompt():
+def get_initial_intent_system_prompt():
     return f"""
     Você é um assistente que ajuda a descobrir a intenção de uma mensagem.
     Responda com um json no formato: {{'intent': user_intent}}
     Essas são as possibilidades e o que deve ser retornado:
-        1. Ele pode enviar uma mensagem com os dados de uma compra. user_intent={IntentTypes.REGISTER_BILL.value}
-        2. Ele pode enviar uma mensagem com uma pergunta sobre os gastos em um determinado período. user_intent={IntentTypes.SUM_BILLS.value}
-        3. Ele pode enviar uma mensagem com informações sobre uma categoria de gastos. user_intent={IntentTypes.REGISTER_CATEGORY.value}
-        4. Ele pode enviar uma mensagem pedindo para excluir uma conta. user_intent={IntentTypes.DELETE_BILL.value}.
-    Caso o pedido do usuário não se encaixe nessas opções, intent_type={IntentTypes.UNKNOWN.value}.
+        1. Ele pode enviar uma mensagem com os dados de uma compra. user_intent={InitialIntentTypes.REGISTER_BILL.value}
+        2. Ele pode enviar uma mensagem com uma pergunta sobre os gastos em um determinado período. user_intent={InitialIntentTypes.SUM_BILLS.value}
+        3. Ele pode enviar uma mensagem com informações sobre uma categoria de gastos. user_intent={InitialIntentTypes.REGISTER_CATEGORY.value}
+        4. Ele pode enviar uma mensagem pedindo para excluir uma conta. user_intent={InitialIntentTypes.DELETE_BILL.value}.
+    Caso o pedido do usuário não se encaixe nessas opções, intent_type={InitialIntentTypes.UNKNOWN.value}.
     """
 
 
@@ -47,12 +47,12 @@ def get_register_bill_system_prompt(categories):
     return f"""
     Retorne um json no formato {{'value': bill_value, 'category': category, 'date': bill_date}}.
     Caso não seja indicado uma data, entenda como o dia atual em UTC.
-    Para os exemplos, cosidere a data atual sendo '2025-03-16'
+    Para os exemplos, cosidere a data atual sendo '2025-03-16' e as categorias [{{'id': 1, 'name': 'food'}}, {{'id': 2, 'name': 'market'}}, {{'id': 3, 'name': 'default'}}]
     Exemplos:
-        'Gastei 20,30 em lanche': {{'value': 20.30, 'category': {{'id': 1, 'name': 'food'}}, 'date': '2025-03-16'}};
-        'Comprei um chapéu de 50 reais ontem': {{'value': 50.00, 'category': {{'id': 2, 'name': 'clothing'}}, 'date': '2025-03-15'}};
-        'Comprei uma boneca terça feira de 10 reais': {{'value': 10.00, 'category': {{'id': 3, 'name': 'default'}}, 'date': '2025-03-16'}};
-        'Gastei 10 reais em bolacha esse mês': {{'value': 10.00, 'category': {{'id': 1, 'name': 'food'}}, 'date': '2025-03-01'}}
+        'Gastei 20,30 em lanche': {{'value': 20.30, 'category_id': 1, 'date': '2025-03-16'}};
+        'Comprei um chapéu de 50 reais ontem': {{'value': 50.00, 'category_id': 2, 'date': '2025-03-15'}};
+        'Comprei uma boneca terça feira de 10 reais': {{'value': 10.00, 'category_id': 3, 'date': '2025-03-16'}};
+        'Gastei 10 reais em bolacha esse mês': {{'value': 10.00, 'category_id': 1, 'date': '2025-03-01'}}
     As categorias possíveis para esse usuário são: {categories}
     O dia de hoje é {get_now()}
     """
@@ -95,11 +95,11 @@ def base_json_data(system_prompt, user_prompt):
 
 
 async def get_user_intent(user_prompt):
-    system_prompt = get_intent_system_prompt()
+    system_prompt = get_initial_intent_system_prompt()
 
     intent_json = await generate_ai_response(system_prompt, user_prompt)
 
-    return IntentTypes(intent_json["intent"])
+    return InitialIntentTypes(intent_json["intent"])
 
 
 async def get_bill_to_register(user_prompt, categories):

@@ -16,15 +16,18 @@ class Logger:
 
     def set_transaction_id(self, transaction_id):
         self.transaction_id = transaction_id
+        format = "%(asctime)s - %(levelname)s - %(transaction_id)s - %(message)s"
+        formatter = logging.Formatter(format)
+        self.logger.handlers[0].setFormatter(formatter)
 
     def log(self, level, message):
-        self.logger.log(level, f"{self.transaction_id} - {message}")
+        self.logger.log(level, message)
 
     def info(self, message):
-        self.logger.info(f"{self.transaction_id} - {message}")
+        self.logger.info(message)
 
     def error(self, message):
-        self.logger.error(f"{self.transaction_id} - {message}")
+        self.logger.error(message)
 
 
 def formatted_date(date: str | datetime) -> str:
