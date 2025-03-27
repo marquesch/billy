@@ -65,6 +65,13 @@ class MessageProcessor:
             start = time.perf_counter()
             message_data = json.loads(message.body)
             message_payload = ReceiveMessagePayload(**message_data)
+
+            lock = f"user:{message_payload.sender_number}:lock"
+
+            if self.redis_client.acquire_lock(lock) is None:
+                self.logger.info(f"{message_payload.sender_number} locked")
+                return
+
             transaction_logger = Logger(message_payload.transaction_id)
 
             transaction_logger.info("Got message")
@@ -108,7 +115,11 @@ class MessageProcessor:
                 await self.amqp_client.publish(body, self.send_queue)
 
             end = time.perf_counter()
-            self.logger.info(f"Message processed in {(end - start) * 1000:.2f} ms")
+            transaction_logger.info(
+                f"Message processed in {(end - start) * 1000:.2f} ms"
+            )
+
+            self.redis_client.release_lock(lock)
 
 
 if __name__ == "__main__":

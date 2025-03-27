@@ -19,6 +19,9 @@ class InitialIntentTypes(Enum):
     REGISTER_CATEGORY = 3
     DELETE_BILL = 4
     LIST_CATEGORIES = 5
+    REGISTER_FAKE_BILLS = 6
+    DELETE_FAKE_BILLS = 7
+    ANALYZE_EXPENSE_TREND = 8
 
 
 INITIAL_INTENT_SCHEMA = {
@@ -37,6 +40,9 @@ INITIAL_INTENT_SYSTEM_PROMPT = f"""
         3. Name of an expense category. 'intent'={InitialIntentTypes.REGISTER_CATEGORY.value}
         4. Request to delete a bill. 'intent'={InitialIntentTypes.DELETE_BILL.value}.
         5. Request to list categories. 'intent'={InitialIntentTypes.LIST_CATEGORIES.value}.
+        6. Request to register fake bills. 'intent'={InitialIntentTypes.REGISTER_FAKE_BILLS.value}.
+        7. Request to delete fake bills. 'intent'={InitialIntentTypes.DELETE_FAKE_BILLS.value}.
+        8. Request to analyze expenses. 'intent'={InitialIntentTypes.ANALYZE_EXPENSE_TREND.value}.
     If the user's request does not fit into these options, intent_type={InitialIntentTypes.UNKNOWN.value}.
     """
 
@@ -49,19 +55,6 @@ REGISTER_BILL_SCHEMA = {
     },
     "required": ["category_id", "value", "date"],
 }
-
-# REGISTER_BILL_SYSTEM_PROMPT = """
-#     The user wants to register a new bill.
-#     For the examples, consider the current date to be '2025-03-16' and the categories
-#     [{{'id': 1, 'name': 'food'}}, {{'id': 2, 'name': 'grocery'}}, {{'id': 3, 'name': 'default'}}]
-#     Examples:
-#         'I spent 20.30 on a snack'. value=20.30, category_id=1, date='2025-03-16'
-#         'I bought a hat for 50 reais yesterday'. value=50.00, category_id=2, date='2025-03-15'
-#         'I bought a doll on Tuesday for 10 reais'. value=10.00, category_id=3, date='2025-03-16'
-#         'I spent 10 reais on cookies this month'. value=10.00, category_id=1, date='2025-03-01'
-#     The possible categories for this user are: {categories}
-#     Today is {today}
-#     """  # TODO improve this prompt
 
 REGISTER_BILL_SYSTEM_PROMPT = """
     The user wants to register a new bill.
@@ -83,25 +76,15 @@ READ_BILLS_SCHEMA = {
     "required": ["range", "show_bills"],
 }
 
-# READ_BILLS_SYSTEM_PROMPT = """
-#     The user want to search for bills.
-#     For the examples, consider the current date to be '2025-03-16'
-#     Examples:
-#         'How much did I spend on food this month?': category_id=1, from='2025-03-01', until='2025-04-01'
-#         'What was my grocery consumption last month?': category_id=2, from='2025-02-01', until='2025-03-01'
-#         'How much did I spend in October?': category_id=null, from='2024-10-01', until='2024-11-01'
-#         'How much did I spend this week on miscellaneous?': category_id=3, from='2025-03-10', until='2025-03-17'
-#     The possible categories for this user are: {categories}
-#     Today is {today}
-#     """
-
 READ_BILLS_SYSTEM_PROMPT = """
     The user want to search for bills.
     Given his categories: {categories}
     And that today is {today}
     The expected values are as follows:
         category_id: the id of the category he might be interested in. remove this key if he doesn't want to filter by category.
-        show_bills: true if he says he wants to see the bills. false otherwise.
+        show_bills: true if he explicitly says he wants to see the details the bills. false otherwise.
+            Examples: 'How much did I spend on food this month?' show_bills=false
+                'How much did I spend on food this month? Also show me the bills' show_bills=true
         range: the range of the period he wants to search for. if he wants to search for a specific date, then the range has only the mentioned date.
         if he wants to search for a period, then the range has the start and end date.
     """
@@ -118,6 +101,29 @@ REGISTER_CATEGORY_SYSTEM_PROMPT = """
         name: the name of the category.
         description: the description of the category. null if the user doesn't mention a description.
     """
+
+YES_OR_NO_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {"value": {"type": "BOOLEAN"}},
+    "required": ["value"],
+}
+
+YES_OR_NO_SYSTEM_PROMPT = """
+    The user is answearing a yes or on question.
+    If his answer is afirmative, value=true.
+    If his answer is negative, value=false.
+    """
+
+ANALYZE_EXPENSE_TREND_PROMPT = """
+    The user wants you to analyze his expenses.
+    I need you to summarize his expenses in last than 500 words.
+    Explain where he spends the most money and how much.
+    And suggest where he could save money.
+    For the analysis, consider his categories to be:
+    {categories}
+    His expenses data are:
+    {bills}
+"""
 
 
 def get_config(response_schema):
@@ -150,7 +156,7 @@ async def get_bill_to_register(user_prompt, categories):
     return await generate_content([system_prompt, user_prompt], REGISTER_BILL_SCHEMA)
 
 
-async def get_bills_to_sum_query_data(user_prompt, categories):
+async def get_bills_query_data(user_prompt, categories):
     system_prompt = READ_BILLS_SYSTEM_PROMPT.format(
         categories=categories, today=datetime.now().strftime("%Y-%m-%d")
     )
@@ -164,7 +170,21 @@ async def get_category_to_register(user_prompt):
     )
 
 
-async def generate_content(contents, schema):
+async def get_yes_or_no_answer(user_prompt):
+    intent, tokens = await generate_content(
+        [YES_OR_NO_SYSTEM_PROMPT, user_prompt], YES_OR_NO_SCHEMA
+    )
+
+    return intent["value"], tokens
+
+
+async def get_analyze_expense_trend(bills, categories):
+    system_prompt = ANALYZE_EXPENSE_TREND_PROMPT.format(bills=bills)
+
+    return await generate_content(system_prompt)
+
+
+async def generate_content(contents, schema=None):
     response = await client.aio.models.generate_content(
         model=LLM_MODEL,
         contents=contents,
@@ -173,4 +193,9 @@ async def generate_content(contents, schema):
     logger = Logger()
     logger.info(response.text)
 
-    return json.loads(response.text), response.usage_metadata.total_token_count
+    if schema is not None:
+        resp = json.loads(response.text)
+    else:
+        resp = response.text
+
+    return resp, response.usage_metadata.total_token_count

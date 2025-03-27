@@ -1,3 +1,4 @@
+from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import DateTime
 from sqlalchemy import Float
@@ -43,6 +44,7 @@ class Bill(DeclarativeBaseModel):
     category_id = Column(Integer, ForeignKey("category.id"), nullable=True)
     tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
     message_id = Column(String, index=True, nullable=False)
+    fake = Column(Boolean, nullable=False, default=False)
 
     category = relationship("Category", back_populates="bills")
     tenant = relationship("Tenant", back_populates="bills")
@@ -68,6 +70,13 @@ class Bill(DeclarativeBaseModel):
             select(cls).where(cls.message_id == message_id, cls.tenant_id == tenant_id)
         ).scalar_one_or_none()
 
+    def to_basic_dict(self):
+        return dict(
+            value=self.value,
+            date=self.date,
+            category_id=self.category_id,
+        )
+
 
 class Tenant(DeclarativeBaseModel):
     __tablename__ = "tenant"
@@ -86,6 +95,7 @@ class User(DeclarativeBaseModel):
     name = Column(String(80), nullable=False)
     tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
     phone_number = Column(String(20), nullable=False)
-    tokens_per_hour = Column(Integer, nullable=False, default=500)
+    tokens_per_hour = Column(Integer, nullable=False, default=999999999)
+    generated_fake_bills = Column(Boolean, nullable=False, default=False)
 
     tenant = relationship("Tenant", back_populates="users")

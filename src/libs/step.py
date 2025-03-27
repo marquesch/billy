@@ -1,11 +1,16 @@
+from datetime import datetime
+from datetime import timedelta
 from enum import Enum
+import random
 
 from src.cfg.database import RedisClient
 from src.libs.ai import InitialIntentTypes
+from src.libs.ai import get_analyze_expense_trend
 from src.libs.ai import get_bill_to_register
-from src.libs.ai import get_bills_to_sum_query_data
+from src.libs.ai import get_bills_query_data
 from src.libs.ai import get_category_to_register
 from src.libs.ai import get_user_intent
+from src.libs.ai import get_yes_or_no_answer
 from src.model import Bill
 from src.model import Category
 from src.model import Tenant
@@ -15,6 +20,7 @@ from src.util import create_whatsapp_aligned_text
 from src.util import formatted_date
 
 from sqlalchemy import and_
+from sqlalchemy import delete
 from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,6 +30,7 @@ class StepTypes(Enum):
     NONE = 0
     ASK_USER_NAME = 1
     ASK_USER_REGISTER_DEFAULT_CATEGORIES = 2
+    ASK_USER_REGISTER_FAKE_BILLS = 3
 
 
 class Step:
@@ -80,17 +87,69 @@ class Step:
                 return self
 
             case StepTypes.ASK_USER_NAME:
+                self.last_step_type = StepTypes.ASK_USER_REGISTER_DEFAULT_CATEGORIES
+
                 self.logger.info(
                     "Checking if user wants to register default categories"
                 )
-                return self._ask_if_user_wants_to_register_default_categories()
+
+                self.session_info = self.session_info | dict(
+                    last_step_type=self.last_step_type.value, name=self.message_body
+                )
+
+                self.response = "Do you want to register default categories?"
+                return self
 
             case StepTypes.ASK_USER_REGISTER_DEFAULT_CATEGORIES:
-                register_default_categories = self.message_body.lower() == "y"
+                self.last_step_type = StepTypes.ASK_USER_REGISTER_FAKE_BILLS
 
-                self.logger.info("Creating user")
+                register_default_categories, tokens = await get_yes_or_no_answer(
+                    self.message_body
+                )
+                self.tokens_used += tokens
 
-                return self._create_user(register_default_categories)
+                self.logger.info("Checking if user wants to register fake bills.")
+
+                self.session_info = self.session_info | dict(
+                    register_default_categories=register_default_categories,
+                    last_step_type=self.last_step_type.value,
+                )
+
+                self.response = "Should I register fake bills?"
+
+                return self
+
+            case StepTypes.ASK_USER_REGISTER_FAKE_BILLS:
+                register_fake_bills, tokens = await get_yes_or_no_answer(
+                    self.message_body
+                )
+                self.tokens_used += tokens
+
+                register_default_categories = self.session_info.get(
+                    "register_default_categories", False
+                )
+
+                self.user = self._create_user(register_default_categories)
+
+                title = "*Registration complete*"
+
+                if register_fake_bills:
+                    self.logger.info("Registering fake bills")
+
+                    total = self._handle_fake_bills_registration()
+
+                    title = f"*Registration complete with {total} fake bills*"
+
+                self.response = create_whatsapp_aligned_text(
+                    title,
+                    {
+                        "Name": self.user.name,
+                        "Phone number": self.user.phone_number,
+                        "Max tokens per hour": self.user.tokens_per_hour,
+                    },
+                )
+
+                return self
 
     async def _handle_user_initial_intent(self):
         user_intent, tokens = await get_user_intent(self.message_body)
@@ -164,10 +223,105 @@ class Step:
                         f"Sum of the bills: {sum}", bills_response
                     )
 
+            case InitialIntentTypes.REGISTER_FAKE_BILLS:
+                self.logger.info("Registering fake bills")
+
+                if self.user.generated_fake_bills:
+                    self.response = "You have already generated fake bills"
+                    return
+
+                total = self._handle_fake_bills_registration()
+
+                self.response = f"Created {total} fake bills"
+
+            case InitialIntentTypes.DELETE_FAKE_BILLS:
+                self.logger.info("Deleting fake bills")
+
+                count = self.db_session.execute(
+                    delete(Bill).where(
+                        and_(Bill.tenant_id == self.user.tenant_id, Bill.fake.is_(True))
+                    )
+                ).rowcount
+
+                self.response = f"Deleted {count} fake bills"
+
+            case InitialIntentTypes.ANALYZE_EXPENSE_TREND:
+                self.logger.info("Analyzing expense trend")
+
+                categories = [
+                    category.to_dict()
+                    for category in Category.get_all(
+                        self.db_session, self.user.tenant_id
+                    ).all()
+                ]
+
+                bills, tokens = await self._handle_bills_to_analyze(categories)
+                self.tokens_used += tokens
+
+                bills_to_analyze = [bill.to_basic_dict() for bill in bills]
+
+                analysis, tokens = await get_analyze_expense_trend(
+                    bills_to_analyze, categories
+                )
+                self.tokens_used += tokens
+
+                self.response = analysis
+
             case InitialIntentTypes.UNKNOWN:
                 self.response = (
                     "Sorry, I could not understand your message."  # TODO add usage text
                 )
+
+    async def _handle_bills_to_analyze(self, categories):
+        query_data, tokens = await get_bills_query_data(self.message_body, categories)
+
+        if len(query_data["range"]) == 1:
+            dates = dict(date=query_data["range"][0])
+
+        else:
+            dates = dict(date_range=query_data["range"])
+
+        category_id = query_data.get("category_id", None)
+
+        bills = Bill.get_many(
+            session=self.db_session,
+            tenant_id=self.user.tenant_id,
+            category_id=category_id,
+            **dates,
+        )
+
+        return bills, tokens
+
+    def _handle_fake_bills_registration(self):
+        categories = Category.get_all(self.db_session, self.user.tenant_id).all()
+
+        total = 0
+        bills = []
+        for i in range(365):
+            for _ in range(random.randint(1, 3)):
+                total += 1
+                category = random.choice(categories)
+                value = random.randint(1, 1000)
+                date = datetime.now() - timedelta(days=i)
+
+                bill = Bill(
+                    value=value,
+                    date=date,
+                    original_prompt=self.message_body,
+                    category_id=category.id,
+                    tenant_id=self.user.tenant_id,
+                    message_id=self.message_id,
+                    fake=True,
+                )
+
+                bills.append(bill)
+
+        self.user.generated_fake_bills = True
+
+        self.db_session.add_all(bills)
+        self.db_session.commit()
+
+        return total
 
     def _handle_quoted_message_bill_deletion(self):
         bill_to_delete = Bill.get_by_message_id(
@@ -220,9 +374,7 @@ class Step:
             for category in Category.get_all(self.db_session, self.user.tenant_id).all()
         ]
 
-        query_data, tokens = await get_bills_to_sum_query_data(
-            self.message_body, categories
-        )
+        query_data, tokens = await get_bills_query_data(self.message_body, categories)
 
         filters = [Bill.tenant_id == self.user.tenant_id]
 
@@ -253,29 +405,6 @@ class Step:
 
         return sum, bills, tokens
 
-    def _cache_token_usage(self):
-        self.redis_client.set(
-            f"{self.phone_number}:token_usage:{self.message_id}",
-            self.tokens_used,
-        )
-
-    def _check_time_to_wait(self):
-        tokens = self.redis_client.get_many(f"{self.phone_number}:token_usage:*")
-
-        token_sum = sum(map(int, tokens))
-        user_has_spare_tokens = token_sum < self.user.tokens_per_hour
-
-        self.logger.info(
-            f"User spent {token_sum} tokens out of {self.user.tokens_per_hour}"
-        )
-
-        if user_has_spare_tokens:
-            return 0
-
-        keys_ttl = self.redis_client.get_ttl(f"{self.phone_number}:token_usage:*")
-
-        return min(keys_ttl)
-
     async def _handle_category_registration(self):
         category_dict, tokens = await get_category_to_register(self.message_body)
 
@@ -295,15 +424,6 @@ class Step:
         self.session_info = dict(last_step_type=self.last_step_type.value)
         self.response = "Need to register. What's your name?"
 
-        return self
-
-    def _ask_if_user_wants_to_register_default_categories(self):
-        self.last_step_type = StepTypes.ASK_USER_REGISTER_DEFAULT_CATEGORIES
-        self.session_info = self.session_info | dict(
-            last_step_type=self.last_step_type.value, name=self.message_body
-        )
-
-        self.response = "Do you want to register default categories? (y/n)"
         return self
 
     def _create_user(self, default_categories=False):
@@ -352,4 +472,27 @@ class Step:
 
         self.session_info = dict()
 
-        return self
+        return user
+
+    def _cache_token_usage(self):
+        self.redis_client.set(
+            f"{self.phone_number}:token_usage:{self.message_id}",
+            self.tokens_used,
+        )
+
+    def _check_time_to_wait(self):
+        tokens = self.redis_client.get_many(f"{self.phone_number}:token_usage:*")
+
+        token_sum = sum(map(int, tokens))
+        user_has_spare_tokens = token_sum < self.user.tokens_per_hour
+
+        self.logger.info(
+            f"User spent {token_sum} tokens out of {self.user.tokens_per_hour}"
+        )
+
+        if user_has_spare_tokens:
+            return 0
+
+        keys_ttl = self.redis_client.get_ttl(f"{self.phone_number}:token_usage:*")
+
+        return min(keys_ttl)

@@ -55,6 +55,7 @@ def sql_today() -> str:
 
 
 def create_whatsapp_aligned_text(title: str, lines: dict | list[dict]) -> str:
+    # TODO improve this by using list instead of strings
     def iterate_dict(d: dict, l: int):
         t = ""
         for header, value in d.items():
@@ -63,9 +64,12 @@ def create_whatsapp_aligned_text(title: str, lines: dict | list[dict]) -> str:
 
         return t
 
-    text = "```"
+    text = ""
+
     if title:
-        text += f"{title}"
+        text += f"{title}\n"
+
+    text += "```"
 
     if isinstance(lines, dict):
         longest = max([len(header) for header in lines.keys()])

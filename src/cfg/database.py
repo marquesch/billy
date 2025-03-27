@@ -24,6 +24,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db():
+    DeclarativeBaseModel.metadata.drop_all(engine)
     DeclarativeBaseModel.metadata.create_all(engine)
 
 
@@ -63,6 +64,12 @@ class RedisClient:
         keys_ttl = [self.redis_client.ttl(key) for key in keys]
 
         return values, keys_ttl
+
+    def acquire_lock(self, key, timeout=30):
+        return self.redis_client.set(key, 1, nx=True, ex=timeout)
+
+    def release_lock(self, key):
+        return self.redis_client.delete(key)
 
     def close(self):
         self.redis_client.close()
