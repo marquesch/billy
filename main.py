@@ -9,7 +9,6 @@ from src.amqp import AMQPClient
 from src.cfg.database import RedisClient
 from src.cfg.database import SessionLocal
 from src.cfg.database import init_db
-from src.libs.ai import close_httpx_client
 from src.libs.step import Step
 from src.schema import ReceiveMessagePayload
 from src.schema import SendMessagePayload
@@ -28,12 +27,12 @@ AMQP_SEND_MESSAGE_QUEUE = "q.message.send"
 class MessageProcessor:
     def __init__(
         self,
-        client: AMQPClient,
+        amqp_client: AMQPClient,
         receive_queue,
         send_queue,
         session_factory,
     ):
-        self.client = client
+        self.amqp_client = amqp_client
         self.receive_queue = receive_queue
         self.send_queue = send_queue
         self.session_factory = session_factory
@@ -42,8 +41,8 @@ class MessageProcessor:
         self.shutdown_event = asyncio.Event()
 
     async def start(self):
-        await self.client.connect()
-        await self.client.consume(self.receive_queue, self._process_message)
+        await self.amqp_client.connect()
+        await self.amqp_client.consume(self.receive_queue, self._process_message)
 
         self.logger.info("Started consuming messages")
 
@@ -55,9 +54,8 @@ class MessageProcessor:
         self.shutdown_event.set()
 
         await asyncio.gather(
-            self.client.close(),
+            self.amqp_client.close(),
             asyncio.to_thread(self.redis_client.close()),
-            asyncio.to_thread(close_httpx_client),
         )
 
         self.logger.info("Shutdown complete")
@@ -107,7 +105,7 @@ class MessageProcessor:
 
                 transaction_logger.info("Sending back message")
 
-                await self.client.publish(body, self.send_queue)
+                await self.amqp_client.publish(body, self.send_queue)
 
             end = time.perf_counter()
             self.logger.info(f"Message processed in {(end - start) * 1000:.2f} ms")
