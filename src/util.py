@@ -54,15 +54,26 @@ def sql_today() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def create_whatsapp_aligned_text(title: str, lines: dict) -> str:
+def create_whatsapp_aligned_text(title: str, lines: dict | list[dict]) -> str:
+    def iterate_dict(d: dict, l: int):
+        t = ""
+        for header, value in d.items():
+            spaces = l - len(header) + 5
+            t += f"\n{header}{' ' * spaces}{value}"
+
+        return t
+
     text = "```"
     if title:
         text += f"{title}"
 
-    longest = max([len(header) for header in lines.keys()])
-
-    for header, value in lines.items():
-        spaces = longest - len(header) + 4
-        text += f"\n{header}{' ' * spaces}{value}"
+    if isinstance(lines, dict):
+        longest = max([len(header) for header in lines.keys()])
+        text += iterate_dict(lines, longest)
+    elif isinstance(lines, list):
+        longest = max([len(header) for header in lines[0].keys()])
+        for line in lines:
+            text += iterate_dict(line, longest)
+            text += "\n"
 
     return text + "```"

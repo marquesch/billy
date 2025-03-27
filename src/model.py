@@ -27,11 +27,7 @@ class Category(DeclarativeBaseModel):
 
     @classmethod
     def get_all(cls, session, tenant_id):
-        return (
-            session.execute(select(cls).where(cls.tenant_id == tenant_id))
-            .scalars()
-            .all()
-        )
+        return session.execute(select(cls).where(cls.tenant_id == tenant_id)).scalars()
 
     def to_dict(self):
         return dict(id=self.id, name=self.name, description=self.description)
@@ -52,17 +48,17 @@ class Bill(DeclarativeBaseModel):
     tenant = relationship("Tenant", back_populates="bills")
 
     @classmethod
-    def get_many(cls, session, tenant_id, date=None, date_range=None, category=None):
+    def get_many(cls, session, tenant_id, date=None, date_range=None, category_id=None):
         filters = [cls.tenant_id == tenant_id]
 
         if date is not None:
             filters.append(cls.date == date)
 
         elif date_range is not None:
-            filters.append(cls.date.between(date_range))
+            filters.append(cls.date.between(*date_range))
 
-        if category is not None:
-            filters.append(cls.category_id == category)
+        if category_id is not None:
+            filters.append(cls.category_id == category_id)
 
         return session.execute(select(cls).where(and_(*filters))).scalars()
 

@@ -3,6 +3,7 @@ from enum import Enum
 from src.cfg.database import RedisClient
 from src.libs.ai import InitialIntentTypes
 from src.libs.ai import get_bill_to_register
+from src.libs.ai import get_bills_to_sum_query_data
 from src.libs.ai import get_category_to_register
 from src.libs.ai import get_user_intent
 from src.model import Bill
@@ -13,6 +14,8 @@ from src.schema import ReceiveMessagePayload
 from src.util import create_whatsapp_aligned_text
 from src.util import formatted_date
 
+from sqlalchemy import and_
+from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -128,7 +131,7 @@ class Step:
                 self.session_info = dict()
 
             case InitialIntentTypes.DELETE_BILL:
-                self.logger.info("Gathering bills to delete")
+                self.logger.info("Gathering bill to delete")
 
                 if self.quoted_message_id is not None:
                     self._handle_quoted_message_bill_deletion()
@@ -137,6 +140,28 @@ class Step:
                     self.response = (
                         "Please quote the message you sent "
                         "that created the bill you want to delete."
+                    )
+
+            case InitialIntentTypes.SUM_BILLS:
+                self.logger.info("Gathering bills to sum")
+
+                sum, bills, tokens = await self._handle_bills_to_sum()
+                self.tokens_used += tokens
+
+                self.response = f"Sum of the bills: {sum}"
+
+                if bills is not None:
+                    bills_response = [
+                        {
+                            "Value": bill.value,
+                            "Category": bill.category.name,
+                            "Date": formatted_date(bill.date),
+                        }
+                        for bill in bills
+                    ]
+
+                    self.response = create_whatsapp_aligned_text(
+                        f"Sum of the bills: {sum}", bills_response
                     )
 
             case InitialIntentTypes.UNKNOWN:
@@ -188,6 +213,45 @@ class Step:
         self.db_session.refresh(bill)
 
         return bill, tokens
+
+    async def _handle_bills_to_sum(self):
+        categories = [
+            category.to_dict()
+            for category in Category.get_all(self.db_session, self.user.tenant_id).all()
+        ]
+
+        query_data, tokens = await get_bills_to_sum_query_data(
+            self.message_body, categories
+        )
+
+        filters = [Bill.tenant_id == self.user.tenant_id]
+
+        if len(query_data["range"]) == 1:
+            filters.append(Bill.date == query_data["range"][0])
+            dates = dict(date=query_data["range"][0])
+
+        else:
+            filters.append(Bill.date.between(*query_data["range"]))
+            dates = dict(date_range=query_data["range"])
+
+        if category_id := query_data.get("category_id", None):
+            filters.append(Bill.category_id == category_id)
+
+        sum = self.db_session.execute(
+            select(func.sum(Bill.value)).where(and_(*filters))
+        ).scalar()
+
+        bills = None
+
+        if query_data["show_bills"]:
+            bills = Bill.get_many(
+                session=self.db_session,
+                tenant_id=self.user.tenant_id,
+                category_id=category_id,
+                **dates,
+            )
+
+        return sum, bills, tokens
 
     def _cache_token_usage(self):
         self.redis_client.set(

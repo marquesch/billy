@@ -28,6 +28,7 @@ INITIAL_INTENT_SCHEMA = {
     },
 }
 
+
 INITIAL_INTENT_SYSTEM_PROMPT = f"""
     You are an assistant that helps discover the intent of a message.
     These are the possible content of the message and what should be returned:
@@ -49,39 +50,60 @@ REGISTER_BILL_SCHEMA = {
     "required": ["category_id", "value", "date"],
 }
 
+# REGISTER_BILL_SYSTEM_PROMPT = """
+#     The user wants to register a new bill.
+#     For the examples, consider the current date to be '2025-03-16' and the categories
+#     [{{'id': 1, 'name': 'food'}}, {{'id': 2, 'name': 'grocery'}}, {{'id': 3, 'name': 'default'}}]
+#     Examples:
+#         'I spent 20.30 on a snack'. value=20.30, category_id=1, date='2025-03-16'
+#         'I bought a hat for 50 reais yesterday'. value=50.00, category_id=2, date='2025-03-15'
+#         'I bought a doll on Tuesday for 10 reais'. value=10.00, category_id=3, date='2025-03-16'
+#         'I spent 10 reais on cookies this month'. value=10.00, category_id=1, date='2025-03-01'
+#     The possible categories for this user are: {categories}
+#     Today is {today}
+#     """  # TODO improve this prompt
+
 REGISTER_BILL_SYSTEM_PROMPT = """
     The user wants to register a new bill.
-    For the examples, consider the current date to be '2025-03-16' and the categories
-    [{{'id': 1, 'name': 'food'}}, {{'id': 2, 'name': 'grocery'}}, {{'id': 3, 'name': 'default'}}]
-    Examples:
-        'I spent 20.30 on a snack'. value=20.30, category_id=1, date='2025-03-16'
-        'I bought a hat for 50 reais yesterday'. value=50.00, category_id=2, date='2025-03-15'
-        'I bought a doll on Tuesday for 10 reais'. value=10.00, category_id=3, date='2025-03-16'
-        'I spent 10 reais on cookies this month'. value=10.00, category_id=1, date='2025-03-01'
-    The possible categories for this user are: {categories}
-    Today is {today}
-    """  # TODO improve this prompt
+    Given his categories: {categories}
+    And that today is {today}
+    The expected values are as follows:
+        category_id: the id of the category that the bill most fits into.
+        value: the value of the bill.
+        date: the date of the bill. Consider his input relative to the current date.
+    """
 
 READ_BILLS_SCHEMA = {
     "type": "OBJECT",
     "properties": {
         "category_id": {"type": "INTEGER"},
-        "from": {"type": "STRING"},
-        "until": {"type": "STRING"},
+        "range": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "show_bills": {"type": "BOOLEAN"},
     },
-    "required": ["category_id", "from", "until"],
+    "required": ["range", "show_bills"],
 }
+
+# READ_BILLS_SYSTEM_PROMPT = """
+#     The user want to search for bills.
+#     For the examples, consider the current date to be '2025-03-16'
+#     Examples:
+#         'How much did I spend on food this month?': category_id=1, from='2025-03-01', until='2025-04-01'
+#         'What was my grocery consumption last month?': category_id=2, from='2025-02-01', until='2025-03-01'
+#         'How much did I spend in October?': category_id=null, from='2024-10-01', until='2024-11-01'
+#         'How much did I spend this week on miscellaneous?': category_id=3, from='2025-03-10', until='2025-03-17'
+#     The possible categories for this user are: {categories}
+#     Today is {today}
+#     """
 
 READ_BILLS_SYSTEM_PROMPT = """
     The user want to search for bills.
-    For the examples, consider the current date to be '2025-03-16'
-    Examples:
-        'How much did I spend on food this month?': category_id=1, from='2025-03-01', until='2025-04-01'
-        'What was my grocery consumption last month?': category_id=2, from='2025-02-01', until='2025-03-01'
-        'How much did I spend in October?': category_id=null, from='2024-10-01', until='2024-11-01'
-        'How much did I spend this week on miscellaneous?': category_id=3, from='2025-03-10', until='2025-03-17'
-    The possible categories for this user are: {categories}
-    Today is {today}
+    Given his categories: {categories}
+    And that today is {today}
+    The expected values are as follows:
+        category_id: the id of the category he might be interested in. remove this key if he doesn't want to filter by category.
+        show_bills: true if he says he wants to see the bills. false otherwise.
+        range: the range of the period he wants to search for. if he wants to search for a specific date, then the range has only the mentioned date.
+        if he wants to search for a period, then the range has the start and end date.
     """
 
 REGISTER_CATEGORY_SCHEMA = {
@@ -92,9 +114,9 @@ REGISTER_CATEGORY_SCHEMA = {
 
 REGISTER_CATEGORY_SYSTEM_PROMPT = """
     The user is trying to register a new category.
-    Examples:
-        'Create an expense category called grocery shopping'. name='grocery shopping', description='Expenses related to grocery shopping'
-        'I'm going to create an expense category called entertainment'. name='entertainment', description='Expenses related to entertainment'
+    The expected values are as follows:
+        name: the name of the category.
+        description: the description of the category. null if the user doesn't mention a description.
     """
 
 
