@@ -10,9 +10,11 @@ services:
     networks:
       - billy_network
     healthcheck:
-      test: [ CMD, rabbitmqctl, status ]
+      test: [ "CMD", "rabbitmqctl", "status" ]
       interval: 30s
       timeout: 10s
+      start_period: 10s
+      start_interval: 1s
       retries: 5
 
   postgres:
@@ -21,10 +23,18 @@ services:
       POSTGRES_USER: billy
       POSTGRES_PASSWORD: billy
       POSTGRES_DB: billy
+      PGUSER: billy
     networks:
       - billy_network
     volumes:
       - "~/.billy/postgres:/var/lib/postgresql/data"
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      start_interval: 1s
+      retries: 5
 
   redis:
     image: redis:latest
@@ -33,7 +43,13 @@ services:
     networks:
       - billy_network
     restart: always
-      
+    healthcheck:
+      test: ["CMD", "redis-cli","ping"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      start_interval: 1s
+      retries: 5
 
   billy:
     build:
@@ -43,9 +59,12 @@ services:
     networks:
       - billy_network
     depends_on:
-      - postgres
-      - rabbitmq
-      - redis
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
       - ".:/app"

@@ -101,7 +101,7 @@ class Step:
                 self.tokens_used += tokens
 
                 self.response = create_whatsapp_aligned_text(
-                    "*Bill created*",
+                    "Bill created",
                     {
                         "Value": bill.value,
                         "Category": bill.category.name,
@@ -118,7 +118,7 @@ class Step:
                 self.tokens_used += tokens
 
                 self.response = create_whatsapp_aligned_text(
-                    "*Category created*",
+                    "Category created",
                     {
                         "Name": category.name,
                         "Description": category.description,
@@ -153,7 +153,7 @@ class Step:
 
         if bill_to_delete is not None:
             self.response = create_whatsapp_aligned_text(
-                "*Bill deleted*",
+                "Bill deleted",
                 {
                     "Value": bill_to_delete.value,
                     "Category": bill_to_delete.category.name,

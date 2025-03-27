@@ -55,12 +55,14 @@ def sql_today() -> str:
 
 
 def create_whatsapp_aligned_text(title: str, lines: dict) -> str:
-    text = f"```{title}"
+    text = "```"
+    if title:
+        text += f"{title}"
 
     longest = max([len(header) for header in lines.keys()])
 
     for header, value in lines.items():
-        spaces = longest - len(header) + 1
+        spaces = longest - len(header) + 4
         text += f"\n{header}{' ' * spaces}{value}"
 
     return text + "```"
