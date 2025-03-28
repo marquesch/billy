@@ -76,7 +76,7 @@ class Step:
                     self.response = (
                         f"You've reached the hourly token limit. "
                         f"Please wait at least {time_to_wait} seconds."
-                    )  # TODO improve message
+                    )
 
                     return self
 
@@ -204,24 +204,10 @@ class Step:
             case InitialIntentTypes.SUM_BILLS:
                 self.logger.info("Gathering bills to sum")
 
-                sum, bills, tokens = await self._handle_bills_to_sum()
+                sum, tokens = await self._handle_bills_to_sum()
                 self.tokens_used += tokens
 
-                self.response = f"Sum of the bills: {sum}"
-
-                if bills is not None:
-                    bills_response = [
-                        {
-                            "Value": bill.value,
-                            "Category": bill.category.name,
-                            "Date": formatted_date(bill.date),
-                        }
-                        for bill in bills
-                    ]
-
-                    self.response = create_whatsapp_aligned_text(
-                        f"Sum of the bills: {sum}", bills_response
-                    )
+                self.response = f"Sum of the bills: {sum or 0:.2f}"
 
             case InitialIntentTypes.REGISTER_FAKE_BILLS:
                 self.logger.info("Registering fake bills")
@@ -261,7 +247,7 @@ class Step:
                 bills_to_analyze = [bill.to_basic_dict() for bill in bills]
 
                 analysis, tokens = await get_analyze_expense_trend(
-                    bills_to_analyze, categories
+                    categories, bills_to_analyze
                 )
                 self.tokens_used += tokens
 
@@ -297,12 +283,13 @@ class Step:
 
         total = 0
         bills = []
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         for i in range(365):
             for _ in range(random.randint(1, 3)):
                 total += 1
                 category = random.choice(categories)
                 value = random.randint(1, 1000)
-                date = datetime.now() - timedelta(days=i)
+                date = today - timedelta(days=i)
 
                 bill = Bill(
                     value=value,
@@ -380,30 +367,20 @@ class Step:
 
         if len(query_data["range"]) == 1:
             filters.append(Bill.date == query_data["range"][0])
-            dates = dict(date=query_data["range"][0])
 
         else:
             filters.append(Bill.date.between(*query_data["range"]))
-            dates = dict(date_range=query_data["range"])
 
         if category_id := query_data.get("category_id", None):
             filters.append(Bill.category_id == category_id)
 
-        sum = self.db_session.execute(
-            select(func.sum(Bill.value)).where(and_(*filters))
-        ).scalar()
+        query = select(func.sum(Bill.value)).where(and_(*filters))
 
-        bills = None
+        self.logger.info(query)
 
-        if query_data["show_bills"]:
-            bills = Bill.get_many(
-                session=self.db_session,
-                tenant_id=self.user.tenant_id,
-                category_id=category_id,
-                **dates,
-            )
+        sum = self.db_session.execute(query).scalar()
 
-        return sum, bills, tokens
+        return sum, tokens
 
     async def _handle_category_registration(self):
         category_dict, tokens = await get_category_to_register(self.message_body)

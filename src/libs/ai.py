@@ -31,13 +31,12 @@ INITIAL_INTENT_SCHEMA = {
     },
 }
 
-
 INITIAL_INTENT_SYSTEM_PROMPT = f"""
     You are an assistant that helps discover the intent of a message.
     These are the possible content of the message and what should be returned:
         1. Data about a purchase. 'intent'={InitialIntentTypes.REGISTER_BILL.value}
-        2. Question about expenses in a specific period. 'intent'={InitialIntentTypes.SUM_BILLS.value}
-        3. Name of an expense category. 'intent'={InitialIntentTypes.REGISTER_CATEGORY.value}
+        2. Request how much he has spent over a period. 'intent'={InitialIntentTypes.SUM_BILLS.value}
+        3. Request to create an expense category. 'intent'={InitialIntentTypes.REGISTER_CATEGORY.value}
         4. Request to delete a bill. 'intent'={InitialIntentTypes.DELETE_BILL.value}.
         5. Request to list categories. 'intent'={InitialIntentTypes.LIST_CATEGORIES.value}.
         6. Request to register fake bills. 'intent'={InitialIntentTypes.REGISTER_FAKE_BILLS.value}.
@@ -61,7 +60,7 @@ REGISTER_BILL_SYSTEM_PROMPT = """
     Given his categories: {categories}
     And that today is {today}
     The expected values are as follows:
-        category_id: the id of the category that the bill most fits into.
+        category_id: the id of the category that suits the bill the best.
         value: the value of the bill.
         date: the date of the bill. Consider his input relative to the current date.
     """
@@ -71,9 +70,8 @@ READ_BILLS_SCHEMA = {
     "properties": {
         "category_id": {"type": "INTEGER"},
         "range": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "show_bills": {"type": "BOOLEAN"},
     },
-    "required": ["range", "show_bills"],
+    "required": ["range"],
 }
 
 READ_BILLS_SYSTEM_PROMPT = """
@@ -82,9 +80,6 @@ READ_BILLS_SYSTEM_PROMPT = """
     And that today is {today}
     The expected values are as follows:
         category_id: the id of the category he might be interested in. remove this key if he doesn't want to filter by category.
-        show_bills: true if he explicitly says he wants to see the details the bills. false otherwise.
-            Examples: 'How much did I spend on food this month?' show_bills=false
-                'How much did I spend on food this month? Also show me the bills' show_bills=true
         range: the range of the period he wants to search for. if he wants to search for a specific date, then the range has only the mentioned date.
         if he wants to search for a period, then the range has the start and end date.
     """
@@ -99,7 +94,7 @@ REGISTER_CATEGORY_SYSTEM_PROMPT = """
     The user is trying to register a new category.
     The expected values are as follows:
         name: the name of the category.
-        description: the description of the category. null if the user doesn't mention a description.
+        description: you should provide the description of the category, based on what the user said and the meaning of the category.
     """
 
 YES_OR_NO_SCHEMA = {
@@ -116,9 +111,14 @@ YES_OR_NO_SYSTEM_PROMPT = """
 
 ANALYZE_EXPENSE_TREND_PROMPT = """
     The user wants you to analyze his expenses.
-    I need you to summarize his expenses in last than 500 words.
+    I need you to summarize his expenses in last than 100 words.
     Explain where he spends the most money and how much.
     And suggest where he could save money.
+    For formatting, use only:
+    *text*: for bold text
+    _text_: for italics
+    - text: for bulletted lists
+    1. text: for numbered lists
     For the analysis, consider his categories to be:
     {categories}
     His expenses data are:
@@ -126,11 +126,14 @@ ANALYZE_EXPENSE_TREND_PROMPT = """
 """
 
 
-def get_config(response_schema):
+def get_config(max_tokens, response_schema=None):
+    response_mime_type = (
+        "application/json" if response_schema is not None else "text/plain"
+    )
     return GenerateContentConfig(
         temperature=0,
-        max_output_tokens=100,
-        response_mime_type="application/json",
+        max_output_tokens=max_tokens,
+        response_mime_type=response_mime_type,
         response_schema=response_schema,
     )
 
@@ -178,17 +181,19 @@ async def get_yes_or_no_answer(user_prompt):
     return intent["value"], tokens
 
 
-async def get_analyze_expense_trend(bills, categories):
-    system_prompt = ANALYZE_EXPENSE_TREND_PROMPT.format(bills=bills)
+async def get_analyze_expense_trend(categories, bills):
+    system_prompt = ANALYZE_EXPENSE_TREND_PROMPT.format(
+        categories=categories, bills=bills
+    )
 
-    return await generate_content(system_prompt)
+    return await generate_content(system_prompt, max_tokens=200)
 
 
-async def generate_content(contents, schema=None):
+async def generate_content(contents, schema=None, max_tokens=100):
     response = await client.aio.models.generate_content(
         model=LLM_MODEL,
         contents=contents,
-        config=get_config(schema),
+        config=get_config(max_tokens, schema),
     )
     logger = Logger()
     logger.info(response.text)

@@ -3,6 +3,7 @@ import json
 import os
 import signal
 import time
+import traceback
 
 import aio_pika
 from src.amqp import AMQPClient
@@ -76,55 +77,70 @@ class MessageProcessor:
             if self.redis_client.acquire_lock(lock) is None:
                 self.logger.info(f"{message_payload.sender_number} locked")
                 return
+            try:
+                transaction_logger = Logger(message_payload.transaction_id)
 
-            transaction_logger = Logger(message_payload.transaction_id)
+                transaction_logger.info("Got message")
 
-            transaction_logger.info("Got message")
+                transaction_logger.info("Checking session info on redis")
 
-            transaction_logger.info("Checking session info on redis")
+                session_info = self.redis_client.get(
+                    f"{message_payload.sender_number}:session_info", {}
+                )
 
-            session_info = self.redis_client.get(
-                f"{message_payload.sender_number}:session_info", {}
-            )
+                transaction_logger.info("Loading step")
+                with self.session_factory() as session:
+                    current_step = await Step(
+                        session_info,
+                        message_payload,
+                        session,
+                        self.redis_client,
+                        transaction_logger,
+                    ).process()
 
-            transaction_logger.info("Loading step")
-            with self.session_factory() as session:
-                current_step = await Step(
-                    session_info,
-                    message_payload,
-                    session,
-                    self.redis_client,
-                    transaction_logger,
-                ).process()
+                transaction_logger.info("Saving session info on redis")
 
-            transaction_logger.info("Saving session info on redis")
+                self.redis_client.set(
+                    f"{message_payload.sender_number}:session_info",
+                    current_step.session_info,
+                )
 
-            self.redis_client.set(
-                f"{message_payload.sender_number}:session_info",
-                current_step.session_info,
-            )
+                if current_step.response is not None:
+                    response_payload = SendMessagePayload(
+                        message_type="text",
+                        recipient_number=message_payload.sender_number,
+                        message_body=current_step.response,
+                        transaction_id=message_payload.transaction_id,
+                        quoted_message_id=message_payload.message_id,
+                    )
 
-            if current_step.response is not None:
+                    body = json.dumps(response_payload.model_dump())
+
+                    transaction_logger.info("Sending back message")
+
+                    await self.amqp_client.publish(body, self.send_queue)
+
+                end = time.perf_counter()
+                transaction_logger.info(
+                    f"Message processed in {(end - start) * 1000:.2f} ms"
+                )
+            except Exception:
+                traceback.print_exc()
+
                 response_payload = SendMessagePayload(
                     message_type="text",
                     recipient_number=message_payload.sender_number,
-                    message_body=current_step.response,
+                    message_body="Something went wrong",
                     transaction_id=message_payload.transaction_id,
                     quoted_message_id=message_payload.message_id,
                 )
 
                 body = json.dumps(response_payload.model_dump())
 
-                transaction_logger.info("Sending back message")
-
                 await self.amqp_client.publish(body, self.send_queue)
 
-            end = time.perf_counter()
-            transaction_logger.info(
-                f"Message processed in {(end - start) * 1000:.2f} ms"
-            )
-
-            self.redis_client.release_lock(lock)
+            finally:
+                self.redis_client.release_lock(lock)
 
 
 if __name__ == "__main__":
