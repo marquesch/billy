@@ -23,6 +23,8 @@ AMQP_PASSWORD = os.getenv("AMQP_PASSWORD", "billy")
 AMQP_RECEIVE_MESSAGE_QUEUE = "q.message.receive"
 AMQP_SEND_MESSAGE_QUEUE = "q.message.send"
 
+BILLY_PHONE_NUMBER = os.getenv("BILLY_PHONE_NUMBER")
+
 
 class MessageProcessor:
     def __init__(
@@ -65,6 +67,9 @@ class MessageProcessor:
             start = time.perf_counter()
             message_data = json.loads(message.body)
             message_payload = ReceiveMessagePayload(**message_data)
+
+            if message_payload.sender_number == BILLY_PHONE_NUMBER:
+                return
 
             lock = f"user:{message_payload.sender_number}:lock"
 
