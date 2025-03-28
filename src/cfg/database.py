@@ -1,8 +1,6 @@
 import json
 import os
 
-from src.model import DeclarativeBaseModel
-
 import redis
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -21,11 +19,6 @@ postgresql_url = (
 )
 engine = create_engine(postgresql_url, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-def init_db():
-    DeclarativeBaseModel.metadata.drop_all(engine)
-    DeclarativeBaseModel.metadata.create_all(engine)
 
 
 class RedisClient:

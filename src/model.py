@@ -42,7 +42,7 @@ class Bill(DeclarativeBaseModel):
     date = Column(DateTime, nullable=False)
     original_prompt = Column(String, nullable=True)
     category_id = Column(Integer, ForeignKey("category.id"), nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenant.id"), index=True, nullable=False)
     message_id = Column(String, index=True, nullable=False)
     fake = Column(Boolean, nullable=False, default=False)
 
@@ -89,13 +89,13 @@ class Tenant(DeclarativeBaseModel):
 
 
 class User(DeclarativeBaseModel):
-    __tablename__ = "user"
+    __tablename__ = "user_account"
 
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String(80), nullable=False)
     tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
-    phone_number = Column(String(20), nullable=False)
-    tokens_per_hour = Column(Integer, nullable=False, default=999999999)
+    phone_number = Column(String(20), index=True, nullable=False)
+    tokens_per_hour = Column(Integer, nullable=False, default=5000)
     generated_fake_bills = Column(Boolean, nullable=False, default=False)
 
     tenant = relationship("Tenant", back_populates="users")

@@ -9,7 +9,6 @@ import aio_pika
 from src.amqp import AMQPClient
 from src.cfg.database import RedisClient
 from src.cfg.database import SessionLocal
-from src.cfg.database import init_db
 from src.libs.step import Step
 from src.schema import ReceiveMessagePayload
 from src.schema import SendMessagePayload
@@ -19,7 +18,6 @@ AMQP_HOST = os.getenv("AMQP_HOST", "rabbitmq")
 AMQP_PORT = int(os.getenv("AMQP_PORT", 5672))
 AMQP_USER = os.getenv("AMQP_USER", "billy")
 AMQP_PASSWORD = os.getenv("AMQP_PASSWORD", "billy")
-
 
 AMQP_RECEIVE_MESSAGE_QUEUE = "q.message.receive"
 AMQP_SEND_MESSAGE_QUEUE = "q.message.send"
@@ -144,8 +142,6 @@ class MessageProcessor:
 
 
 if __name__ == "__main__":
-    init_db()
-
     client = AMQPClient(
         host=AMQP_HOST, port=AMQP_PORT, login=AMQP_USER, password=AMQP_PASSWORD
     )

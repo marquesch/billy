@@ -7,6 +7,9 @@ from src.util import Logger
 
 from google import genai
 from google.genai.types import GenerateContentConfig
+from httpx import ConnectError
+
+RETRIES = 3
 
 API_KEY = os.getenv("AI_PLATFORM_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL")
@@ -190,12 +193,22 @@ async def get_analyze_expense_trend(categories, bills):
 
 
 async def generate_content(contents, schema=None, max_tokens=100):
-    response = await client.aio.models.generate_content(
-        model=LLM_MODEL,
-        contents=contents,
-        config=get_config(max_tokens, schema),
-    )
     logger = Logger()
+
+    for i in range(RETRIES):
+        try:
+            response = await client.aio.models.generate_content(
+                model=LLM_MODEL,
+                contents=contents,
+                config=get_config(max_tokens, schema),
+            )
+
+            break
+        except ConnectError as e:
+            logger.error(e)
+            if i == RETRIES - 1:
+                raise
+
     logger.info(response.text)
 
     if schema is not None:
