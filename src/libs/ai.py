@@ -9,124 +9,22 @@ from google import genai
 from google.genai.types import GenerateContentConfig
 from httpx import ConnectError
 
-RETRIES = 3
+REQUEST_RETRIES = 3
 
 API_KEY = os.getenv("AI_PLATFORM_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL")
 
 
 class InitialIntentTypes(Enum):
-    UNKNOWN = 0
-    REGISTER_BILL = 1
-    SUM_BILLS = 2
-    REGISTER_CATEGORY = 3
-    DELETE_BILL = 4
-    LIST_CATEGORIES = 5
-    REGISTER_FAKE_BILLS = 6
-    DELETE_FAKE_BILLS = 7
-    ANALYZE_EXPENSE_TREND = 8
-
-
-INITIAL_INTENT_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "intent": {"type": "INTEGER"},
-    },
-}
-
-INITIAL_INTENT_SYSTEM_PROMPT = f"""
-    You are an assistant that helps discover the intent of a message.
-    These are the possible content of the message and what should be returned:
-        1. Data about a purchase. 'intent'={InitialIntentTypes.REGISTER_BILL.value}
-        2. Request how much he has spent over a period. 'intent'={InitialIntentTypes.SUM_BILLS.value}
-        3. Request to create an expense category. 'intent'={InitialIntentTypes.REGISTER_CATEGORY.value}
-        4. Request to delete a bill. 'intent'={InitialIntentTypes.DELETE_BILL.value}.
-        5. Request to list categories. 'intent'={InitialIntentTypes.LIST_CATEGORIES.value}.
-        6. Request to register fake bills. 'intent'={InitialIntentTypes.REGISTER_FAKE_BILLS.value}.
-        7. Request to delete fake bills. 'intent'={InitialIntentTypes.DELETE_FAKE_BILLS.value}.
-        8. Request to analyze expenses. 'intent'={InitialIntentTypes.ANALYZE_EXPENSE_TREND.value}.
-    If the user's request does not fit into these options, intent_type={InitialIntentTypes.UNKNOWN.value}.
-    """
-
-REGISTER_BILL_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "category_id": {"type": "INTEGER"},
-        "value": {"type": "NUMBER"},
-        "date": {"type": "STRING"},
-    },
-    "required": ["category_id", "value", "date"],
-}
-
-REGISTER_BILL_SYSTEM_PROMPT = """
-    The user wants to register a new bill.
-    Given his categories: {categories}
-    And that today is {today}
-    The expected values are as follows:
-        category_id: the id of the category that suits the bill the best.
-        value: the value of the bill.
-        date: the date of the bill. Consider his input relative to the current date.
-    """
-
-READ_BILLS_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "category_id": {"type": "INTEGER"},
-        "range": {"type": "ARRAY", "items": {"type": "STRING"}},
-    },
-    "required": ["range"],
-}
-
-READ_BILLS_SYSTEM_PROMPT = """
-    The user want to search for bills.
-    Given his categories: {categories}
-    And that today is {today}
-    The expected values are as follows:
-        category_id: the id of the category he might be interested in. remove this key if he doesn't want to filter by category.
-        range: the range of the period he wants to search for. if he wants to search for a specific date, then the range has only the mentioned date.
-        if he wants to search for a period, then the range has the start and end date.
-    """
-
-REGISTER_CATEGORY_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {"name": {"type": "STRING"}, "description": {"type": "STRING"}},
-    "required": ["name", "description"],
-}
-
-REGISTER_CATEGORY_SYSTEM_PROMPT = """
-    The user is trying to register a new category.
-    The expected values are as follows:
-        name: the name of the category.
-        description: you should provide the description of the category, based on what the user said and the meaning of the category.
-    """
-
-YES_OR_NO_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {"value": {"type": "BOOLEAN"}},
-    "required": ["value"],
-}
-
-YES_OR_NO_SYSTEM_PROMPT = """
-    The user is answearing a yes or on question.
-    If his answer is afirmative, value=true.
-    If his answer is negative, value=false.
-    """
-
-ANALYZE_EXPENSE_TREND_PROMPT = """
-    The user wants you to analyze his expenses.
-    I need you to summarize his expenses in last than 100 words.
-    Explain where he spends the most money and how much.
-    And suggest where he could save money.
-    For formatting, use only:
-    *text*: for bold text
-    _text_: for italics
-    - text: for bulletted lists
-    1. text: for numbered lists
-    For the analysis, consider his categories to be:
-    {categories}
-    His expenses data are:
-    {bills}
-"""
+    UNKNOWN = "unknown"
+    REGISTER_BILL = "reg_bill"
+    SUM_BILLS = "sum_bills"
+    REGISTER_CATEGORY = "reg_category"
+    DELETE_BILL = "del_bill"
+    LIST_CATEGORIES = "list_categories"
+    REGISTER_FAKE_BILLS = "reg_fake_bill"
+    DELETE_FAKE_BILLS = "del_fake_bill"
+    ANALYZE_EXPENSE_TREND = "analyze_expense_trend"
 
 
 def get_config(max_tokens, response_schema=None):
@@ -144,49 +42,68 @@ def get_config(max_tokens, response_schema=None):
 client = genai.Client(api_key=API_KEY)
 
 
-async def get_user_intent(user_prompt):
-    system_prompt = INITIAL_INTENT_SYSTEM_PROMPT
+def get_prompt(key, **kwargs):
+    import time
 
-    intent_value, tokens = await generate_content(
-        [system_prompt, user_prompt], INITIAL_INTENT_SCHEMA
-    )
+    st = time.perf_counter()
+    with open("src/libs/ai.json", "r") as f:
+        data = json.load(f)
+    logger = Logger()
+    end = time.perf_counter()
+    logger.info(f"Loaded ai.json in {(end - st) * 1000} ms")
+    return data["system_prompt"][key].format(**kwargs)
+
+
+def get_schema(key):
+    with open("src/libs/ai.json", "r") as f:
+        data = json.load(f)
+    return data["schema"][key]
+
+
+async def get_user_intent(user_prompt):
+    system_prompt = get_prompt("INITIAL_INTENT")
+    schema = get_schema("INITIAL_INTENT")
+
+    intent_value, tokens = await generate_content([system_prompt, user_prompt], schema)
 
     return InitialIntentTypes(intent_value["intent"]), tokens
 
 
 async def get_bill_to_register(user_prompt, categories):
-    system_prompt = REGISTER_BILL_SYSTEM_PROMPT.format(
-        categories=categories, today=datetime.now().strftime("%Y-%m-%d")
-    )
+    today = datetime.now().strftime("%Y-%m-%d")
+    system_prompt = get_prompt("REGISTER_BILL", categories=categories, today=today)
+    schema = get_schema("REGISTER_BILL")
 
-    return await generate_content([system_prompt, user_prompt], REGISTER_BILL_SCHEMA)
+    return await generate_content([system_prompt, user_prompt], schema)
 
 
 async def get_bills_query_data(user_prompt, categories):
-    system_prompt = READ_BILLS_SYSTEM_PROMPT.format(
-        categories=categories, today=datetime.now().strftime("%Y-%m-%d")
-    )
+    today = datetime.now().strftime("%Y-%m-%d")
+    system_prompt = get_prompt("READ_BILLS", categories=categories, today=today)
+    schema = get_schema("READ_BILLS")
 
-    return await generate_content([system_prompt, user_prompt], READ_BILLS_SCHEMA)
+    return await generate_content([system_prompt, user_prompt], schema)
 
 
 async def get_category_to_register(user_prompt):
-    return await generate_content(
-        [REGISTER_CATEGORY_SYSTEM_PROMPT, user_prompt], REGISTER_CATEGORY_SCHEMA
-    )
+    system_prompt = get_prompt("REGISTER_CATEGORY")
+    schema = get_schema("REGISTER_CATEGORY")
+
+    return await generate_content([system_prompt, user_prompt], schema)
 
 
 async def get_yes_or_no_answer(user_prompt):
-    intent, tokens = await generate_content(
-        [YES_OR_NO_SYSTEM_PROMPT, user_prompt], YES_OR_NO_SCHEMA
-    )
+    system_prompt = get_prompt("YES_OR_NO")
+    schema = get_schema("YES_OR_NO")
+
+    intent, tokens = await generate_content([system_prompt, user_prompt], schema)
 
     return intent["value"], tokens
 
 
 async def get_analyze_expense_trend(categories, bills):
-    system_prompt = ANALYZE_EXPENSE_TREND_PROMPT.format(
-        categories=categories, bills=bills
+    system_prompt = get_prompt(
+        "ANALYZE_EXPENSE_TREND", categories=categories, bills=bills
     )
 
     return await generate_content(system_prompt, max_tokens=200)
@@ -195,7 +112,7 @@ async def get_analyze_expense_trend(categories, bills):
 async def generate_content(contents, schema=None, max_tokens=100):
     logger = Logger()
 
-    for i in range(RETRIES):
+    for i in range(REQUEST_RETRIES):
         try:
             response = await client.aio.models.generate_content(
                 model=LLM_MODEL,
@@ -206,7 +123,7 @@ async def generate_content(contents, schema=None, max_tokens=100):
             break
         except ConnectError as e:
             logger.error(e)
-            if i == RETRIES - 1:
+            if i == REQUEST_RETRIES - 1:
                 raise
 
     logger.info(response.text)
