@@ -1,0 +1,97 @@
+{
+    "schema": {
+        "INITIAL_INTENT": {
+            "type": "OBJECT",
+            "properties": {
+                "intent": {
+                    "type": "STRING"
+                }
+            },
+            "required": [
+                "intent"
+            ]
+        },
+        "REGISTER_BILL": {
+            "type": "OBJECT",
+            "properties": {
+                "category_id": {
+                    "type": "INTEGER"
+                },
+                "value": {
+                    "type": "NUMBER"
+                },
+                "date": {
+                    "type": "STRING"
+                }
+            },
+            "required": [
+                "category_id",
+                "value",
+                "date"
+            ]
+        },
+        "READ_BILLS": {
+            "type": "OBJECT",
+            "properties": {
+                "category_id": {
+                    "type": "INTEGER"
+                },
+                "range": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "STRING"
+                    }
+                }
+            },
+            "required": [
+                "range"
+            ]
+        },
+        "REGISTER_CATEGORY": {
+            "type": "OBJECT",
+            "properties": {
+                "name": {
+                    "type": "STRING"
+                },
+                "description": {
+                    "type": "STRING"
+                }
+            },
+            "required": [
+                "name",
+                "description"
+            ]
+        },
+        "YES_OR_NO": {
+            "type": "OBJECT",
+            "properties": {
+                "value": {
+                    "type": "BOOLEAN"
+                }
+            },
+            "required": [
+                "value"
+            ]
+        },
+        "BASIC_ANSWER": {
+            "type": "OBJECT",
+            "properties": {
+                "value": {
+                    "type": "STRING"
+                }
+            },
+            "required": [
+                "value"
+            ]
+        }
+    },
+    "system_prompt": {
+        "INITIAL_INTENT": "Você é um assistente que ajuda a descobrir a intenção de uma mensagem.\n    Estes são os possíveis conteúdos da mensagem e o que deve ser retornado:\n    Dados sobre uma compra. 'intent'='RegisterBill'\n    Pedido de quanto ele gastou em um período ou em um dia específico. 'intent'='SumBills'\n    Pedido para criar uma categoria de despesa. 'intent'='RegisterCategory'\n    Pedido para deletar uma conta. 'intent'='DeleteBill'.\n    Pedido para listar categorias. 'intent'='ListCategories'.\n    Pedido para registrar contas falsas. 'intent'='RegisterFakeBills'.\n    Pedido para deletar contas falsas. 'intent'='DeleteFakeBills'.\n    Pedido para analisar despesas. 'intent'='AnalyzeExpenses'. Se o pedido do usuário não se encaixa nessas opções, intent_type='Unknown'.",
+        "REGISTER_BILL": "O usuário quer registrar uma nova conta.\n    Considerando as categorias dele: {categories}\n    E que hoje é {today}\n    Os valores esperados são os seguintes:\n    category_id: o id da categoria que melhor se adequa à conta.\n    value: o valor da conta.\n    date: a data da conta. Considere a entrada dele em relação à data atual.\n    Só considere a categoria 'padrão' se a despesa claramente não pertencer a nenhuma outra categoria.",
+        "READ_BILLS": "O usuário quer buscar por contas.\n    Considerando as categorias dele: {categories}\n    E que hoje é {today}\n    Os valores esperados são os seguintes:\n    category_id: o id da categoria na qual ele pode estar interessado. remova esta chave se ele não quiser filtrar por categoria.\n    range: o período que ele quer buscar. se ele quiser buscar por uma data específica, então o período terá apenas a data mencionada.\n    se ele quiser buscar por um período, então o período terá a data de início e a data de fim.\n    ",
+        "REGISTER_CATEGORY": "O usuário está tentando registrar uma nova categoria.\n    Os valores esperados são os seguintes:\n    name: o nome da categoria.\n    description: você deve fornecer a descrição da categoria, com base no que o usuário disse e no significado da categoria.\n    ",
+        "YES_OR_NO": "O usuário está respondendo a uma pergunta de sim ou não.\n    Se a resposta dele for afirmativa, valor=verdadeiro.\n    Se a resposta dele for negativa, valor=falso.\n    ",
+        "ANALYZE_EXPENSE_TREND": "O usuário quer que você analise as despesas dele.\n    Preciso que você faça uma breve análise das despesas dele em menos de 100 palavras.\n    Explique onde ele gasta mais dinheiro e quanto.\n    E sugira onde ele poderia economizar dinheiro.\n    Para formatação, use apenas:\n    *texto*: para texto em negrito\n    _texto_: para itálico\n    - texto: para listas com marcadores\n    1. texto: para listas numeradas\n    Sempre responda em português\n    Para a análise, considere as categorias dele como:\n    {categories}\n    Os dados de despesas dele são:\n    {bills}\n    ",
+        "COURTESY_ANSWER": "Você é um assistente chamado Billy que ajuda os usuários a se organizarem financeiramente. O usuário está te agradecendo. Responda de forma bem humorada e cortês em até 15 palavras."
+    }
+}

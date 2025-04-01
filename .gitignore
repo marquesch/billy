@@ -1,0 +1,10 @@
+.ruff_cache
+.idea
+.tool-versions
+storage/*
+__pycache__
+.vscode
+.venv
+.env
+.env.prod
+docker-compose-prod.yml

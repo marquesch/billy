@@ -1,0 +1,74 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4.0.7-management
+    ports:
+      - "15672:15672"
+    volumes:
+      - "~/.billy/rabbitmq:/var/lib/rabbitmq"
+      - "./rabbitmq/rabbitmq.config:/etc/rabbitmq/rabbitmq.config"
+      - "./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json"
+    networks:
+      - billy_network
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      start_interval: 1s
+      retries: 5
+
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: billy
+      POSTGRES_PASSWORD: billy
+      POSTGRES_DB: billy
+      PGUSER: billy
+    networks:
+      - billy_network
+    volumes:
+      - "~/.billy/postgres:/var/lib/postgresql/data"
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      start_interval: 1s
+      retries: 5
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - billy_network
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli","ping"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      start_interval: 1s
+      retries: 5
+
+  billy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    networks:
+      - billy_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ".:/app"
+
+networks:
+  billy_network:
+    external: true
