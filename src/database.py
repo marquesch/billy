@@ -20,7 +20,7 @@ def get_db_session():
 
 @contextmanager
 def db_session_manager():
-    session: Session = SessionLocal()
+    session = SessionLocal()
     token = db_session_ctx.set(session)
     try:
         yield session
@@ -78,3 +78,6 @@ class RedisClient:
 
     def close(self):
         self.redis_client.close()
+
+
+redis_client = RedisClient()

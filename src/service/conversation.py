@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 
 class ConversationManager:
-    def __init__(self, message_payload, state):
+    def __init__(self, message_payload=None, state={}):
         self.message_payload = message_payload
         self.state = state
         self.session = database.get_db_session()

@@ -25,6 +25,7 @@ def upgrade() -> None:
     op.create_table(
         "tenant",
         sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("generated_fake_bills", sa.Boolean(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
@@ -46,7 +47,6 @@ def upgrade() -> None:
         sa.Column("tenant_id", sa.Integer(), nullable=False),
         sa.Column("phone_number", sa.String(length=20), nullable=False),
         sa.Column("tokens_per_hour", sa.Integer(), nullable=False),
-        sa.Column("generated_fake_bills", sa.Boolean(), nullable=False),
         sa.ForeignKeyConstraint(
             ["tenant_id"],
             ["tenant.id"],

@@ -1,19 +1,24 @@
 from datetime import datetime
 from datetime import timedelta
+import json
 import random
 import re
 from typing import ClassVar
+import uuid
 
 from src import database
 from src import util
+from src.amqp import AMQP_SEND_MESSAGE_QUEUE
 from src.lib import ai
 from src.model import Bill
 from src.model import Category
 from src.model import Tenant
 from src.model import User
+from src.schema import SendMessagePayload
 from src.schema import StepResult
-from src.util import create_whatsapp_aligned_text
-from src.util import formatted_date
+from src.service import amqp_client
+from src.service import redis_client
+from src.service.step.background import get_background_task_manager
 
 from sqlalchemy import and_
 from sqlalchemy import delete
@@ -82,25 +87,24 @@ class InitialHandler(Step):
             return StepResult(next_step="HandleUserIntent")
 
 
-class HandleUserIntent(Step):
+class HandleTenantInvitation(Step):
     async def _process(self, message_payload):
-        system_prompt = (
-            "Você é um assistente que ajuda a descobrir a intenção de uma mensagem. "
-            "Estes são os possíveis conteúdos da mensagem e o que deve ser retornado"
-        )
-        for class_name, cls in Step.registry.items():
-            if hasattr(cls, "intent_description"):
-                system_prompt += f"\n{cls.intent_description}: '{class_name}'"
-
-        tokens, user_intent = await ai.get_user_intent(
-            message_payload.message_body, system_prompt
+        tokens, confirmation = await ai.get_yes_or_no_answer(
+            message_payload.message_body
         )
 
-        return StepResult(tokens_used=tokens, next_step=user_intent)
+        if confirmation:
+            return StepResult(tokens_used=tokens, next_step="BeginRegistration")
+
+        else:
+            return StepResult(tokens_used=tokens, message="Ok, tchau!")
 
 
 class BeginRegistration(Step):
     async def _process(self, message_payload):
+        if self.state.get("tenant_id", None):
+            return StepResult(next_step="AskUserName")
+
         message = (
             "Olá, eu sou Billy, seu assistente financeiro!\n"
             "Vejo que essa é sua primeira mensagem.\n"
@@ -123,6 +127,9 @@ class AskUserName(WaitingStep):
 class ProcessUserName(Step):
     async def _process(self, message_payload):
         self.state["name"] = message_payload.message_body
+
+        if self.state.get("tenant_id", None):
+            return StepResult(next_step="RegisterUser")
 
         return StepResult(next_step="AskUserDefaultCategories")
 
@@ -174,29 +181,55 @@ class ProcessUserRegisterFakeBills(Step):
 
 class RegisterUser(TerminalStep):
     async def _process(self, message_payload):
-        register_fake_bills = self.state["register_fake_bills"]
-        register_default_categories = self.state["register_default_categories"]
+        if tenant_id := self.state.get("tenant_id", None):
+            tenant = Tenant.get_by_id(self.session, tenant_id)
 
-        tenant = Tenant()
-        self.session.add(tenant)
-        self.session.flush()
-        self.session.refresh(tenant)
+            if tenant is None:
+                raise ValueError("Tenant not found")
 
-        categories = [
-            Category(
-                name=Category.DEFAULT_CATEGORY["name"],
-                description=Category.DEFAULT_CATEGORY["description"],
-                tenant_id=tenant.id,
-            )
-        ]
+            register_fake_bills = False
 
-        if register_default_categories:
-            categories.extend(
-                [
-                    Category(name=name, description=description, tenant_id=tenant.id)
-                    for name, description in Category.BASIC_CATEGORIES.items()
-                ]
-            )
+        else:
+            register_fake_bills = self.state["register_fake_bills"]
+            register_default_categories = self.state["register_default_categories"]
+
+            tenant = Tenant()
+            self.session.add(tenant)
+            self.session.flush()
+            self.session.refresh(tenant)
+
+            categories = [
+                Category(
+                    name=Category.DEFAULT_CATEGORY["name"],
+                    description=Category.DEFAULT_CATEGORY["description"],
+                    tenant_id=tenant.id,
+                )
+            ]
+
+            if register_default_categories:
+                categories.extend(
+                    [
+                        Category(
+                            name=name, description=description, tenant_id=tenant.id
+                        )
+                        for name, description in Category.BASIC_CATEGORIES.items()
+                    ]
+                )
+
+            self.session.add_all(categories)
+
+            if register_fake_bills:
+                self.log.info("Registering fake bills")
+
+                total = _register_fake_bills(
+                    categories, message_payload.message_id, tenant, self.session
+                )
+
+                title = (
+                    "*Registro concluído com sucesso!*\n"
+                    f"Cadastrei também {total} contas falsas. "
+                    "Caso queira excluí-las, é só pedir!"
+                )
 
         user = User(
             name=self.state["name"],
@@ -204,27 +237,13 @@ class RegisterUser(TerminalStep):
             tenant_id=tenant.id,
         )
 
-        self.session.add_all(categories)
         self.session.add(user)
         self.session.flush()
         self.session.refresh(user)
 
         title = "*Registro concluído com sucesso!*"
 
-        if register_fake_bills:
-            self.log.info("Registering fake bills")
-
-            total = _register_fake_bills(
-                categories, message_payload.message_id, user, self.session
-            )
-
-            title = (
-                "*Registro concluído com sucesso!*\n"
-                f"Cadastrei também {total} contas falsas. "
-                "Caso queira excluí-las, é só pedir!"
-            )
-
-        message = create_whatsapp_aligned_text(
+        message = util.create_whatsapp_aligned_text(
             title,
             {
                 "Nome": user.name,
@@ -235,6 +254,106 @@ class RegisterUser(TerminalStep):
         )
 
         return StepResult(message=message)
+
+
+class InviteTenantMember(WaitingStep):
+    intent_description = "Se o usuário deseja convidar um membro do tenant"
+
+    @property
+    def question(self):
+        return "Qual o número de telefone do membro do tenant?"
+
+    @property
+    def next_step(self):
+        return "SaveTenantMemberNumber"
+
+
+class SaveTenantMemberNumber(Step):
+    async def _process(self, message_payload):
+        phone_number = re.sub(r"\D", "", message_payload.message_body)
+
+        if len(phone_number) < 10:
+            phone_number = f"55{phone_number}"
+
+        self.state["phone_number"] = phone_number
+
+        return StepResult(next_step="CheckTenantMemberNumber")
+
+
+class CheckTenantMemberNumber(WaitingStep):
+    @property
+    def question(self):
+        phone_number = self.state["phone_number"]
+
+        if len(phone_number) < 12:
+            message = (
+                "O número de telefone que você está tentando convidar é inválido. "
+                "Tente novamente."
+            )
+
+        else:
+            message = f"O número de telefone que você está tentando convidar é {phone_number}?"
+
+        return message
+
+    @property
+    def next_step(self):
+        phone_number = self.state["phone_number"]
+
+        if len(phone_number) < 12:
+            return "InviteTenantMember"
+
+        return "ProcessInviteTenantMember"
+
+
+class ProcessInviteTenantMember(TerminalStep):
+    async def _process(self, message_payload):
+        phone_number = self.state["phone_number"]
+
+        background_task_manager = get_background_task_manager()
+
+        background_task_manager.add(
+            invite_tenant_member, phone_number, self.user.tenant_id
+        )
+
+        return StepResult(message="Done")
+
+
+async def invite_tenant_member(phone_number, tenant_id):
+    message_body = "Você foi convidado para fazer parte de um tenant. Confirma?"
+
+    state = dict(tenant_id=tenant_id, next_step="HandleTenantInvitation")
+
+    message_payload = SendMessagePayload(
+        message_type="text",
+        recipient_number=phone_number,
+        message_body=message_body,
+        transaction_id=uuid.uuid4().hex,
+        quoted_message_id=None,
+    )
+
+    await amqp_client.publish(
+        json.dumps(message_payload.model_dump()), AMQP_SEND_MESSAGE_QUEUE
+    )
+
+    redis_client.set(f"user:{phone_number}:state", state)
+
+
+class HandleUserIntent(Step):
+    async def _process(self, message_payload):
+        system_prompt = (
+            "Você é um assistente que ajuda a descobrir a intenção de uma mensagem. "
+            "Estes são os possíveis conteúdos da mensagem e o que deve ser retornado"
+        )
+        for class_name, cls in Step.registry.items():
+            if hasattr(cls, "intent_description"):
+                system_prompt += f"\n{cls.intent_description}: '{class_name}'"
+
+        tokens, user_intent = await ai.get_user_intent(
+            message_payload.message_body, system_prompt
+        )
+
+        return StepResult(tokens_used=tokens, next_step=user_intent)
 
 
 class RegisterBill(TerminalStep):
@@ -262,12 +381,12 @@ class RegisterBill(TerminalStep):
         self.session.add(bill)
         self.session.flush()
 
-        message = create_whatsapp_aligned_text(
+        message = util.create_whatsapp_aligned_text(
             "Conta registrada",
             {
                 "Valor": bill.value,
                 "Categoria": bill.category.name,
-                "Data": formatted_date(bill.date),
+                "Data": util.formatted_date(bill.date),
             },
         )
 
@@ -290,7 +409,7 @@ class RegisterCategory(TerminalStep):
         self.session.add(category)
         self.session.flush()
 
-        message = create_whatsapp_aligned_text(
+        message = util.create_whatsapp_aligned_text(
             "Categoria registrada",
             {
                 "Nome": category.name,
@@ -322,12 +441,12 @@ class DeleteBill(TerminalStep):
             )
 
             if bill_to_delete is not None:
-                message = create_whatsapp_aligned_text(
+                message = util.create_whatsapp_aligned_text(
                     "Conta excluida",
                     {
                         "Valor": bill_to_delete.value,
                         "Categoria": bill_to_delete.category.name,
-                        "Data": formatted_date(bill_to_delete.date),
+                        "Data": util.formatted_date(bill_to_delete.date),
                     },
                 )
 
@@ -364,17 +483,19 @@ class SumBills(TerminalStep):
             filters.append(Bill.category_id == category_id)
             category_name = categories[category_id]["name"]
 
-        query = select(func.sum(Bill.value)).where(and_(*filters))
+        query = select(func.sum(Bill.value)).where(and_(*filters))  # noqa: F821
 
         sum_value = self.session.execute(query).scalar() or 0
 
         message = "Soma das contas "
         if len(query_data["range"]) == 1:
             day = query_data["range"][0]
-            message += f"do dia {formatted_date(day)}"
+            message += f"do dia {util.formatted_date(day)}"
         else:
             begin, end = query_data["range"]
-            message += f"entre {formatted_date(begin)} e {formatted_date(end)}"
+            message += (
+                f"entre {util.formatted_date(begin)} e {util.formatted_date(end)}"
+            )
 
         if category_name is not None:
             message += f" da categoria {category_name}"
@@ -393,7 +514,7 @@ class ListCategories(TerminalStep):
             for category in Category.get_all(self.session, self.user.tenant_id).all()
         ]
 
-        message = create_whatsapp_aligned_text("Categorias", categories)
+        message = util.create_whatsapp_aligned_text("Categorias", categories)
 
         return StepResult(message=message)
 
@@ -402,8 +523,7 @@ class RegisterFakeBills(TerminalStep):
     intent_description = "Pedido para registrar contas falsas"
 
     async def _process(self, message_payload):
-        self.log.info(self.user.generated_fake_bills)
-        if self.user.generated_fake_bills:
+        if self.user.tenant.generated_fake_bills:
             message = (
                 "Você já gerou contas falsas. Infelizmente, "
                 "eu não posso fazer esse processo novamente."
@@ -492,28 +612,6 @@ class Courtesy(TerminalStep):
         return StepResult(tokens_used=tokens_used, message=message)
 
 
-class InviteFamilyMember(WaitingStep):
-    intent_description = "Se o usuário deseja convidar um membro da família"
-
-    @property
-    def question(self):
-        return "Qual o número de telefone do membro da família?"
-
-    @property
-    def next_step(self):
-        return "ProcessInviteFamilyMember"
-
-
-class ProcessInviteFamilyMember(Step):
-    async def _process(self, message_payload):
-        message_body = message_payload.message_body
-
-        # TODO create logic. send to db?
-        phone_number = re.sub(r"\D", "", message_body)
-
-        ...
-
-
 class Unknown(TerminalStep):
     intent_description = "Se o pedido do usuário não se encaixa em nenhuma outra opção"
 
@@ -523,7 +621,7 @@ class Unknown(TerminalStep):
         return StepResult(message=message)
 
 
-def _register_fake_bills(categories, message_id, user, session):
+def _register_fake_bills(categories, message_id, tenant, session):
     bills = []
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     for i in range(365):
@@ -536,17 +634,16 @@ def _register_fake_bills(categories, message_id, user, session):
                 value=value,
                 date=date,
                 category_id=category.id,
-                tenant_id=user.tenant_id,
+                tenant_id=tenant.id,
                 message_id=message_id,
                 fake=True,
             )
 
             bills.append(bill)
 
-    user.generated_fake_bills = True
+    tenant.generated_fake_bills = True
 
     session.add_all(bills)
     session.flush()
-    session.refresh(user)
 
     return len(bills)

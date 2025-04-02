@@ -15,7 +15,7 @@ class MessagePayload(BasePayload):
 
 class SendMessagePayload(MessagePayload):
     recipient_number: str
-    quoted_message_id: str
+    quoted_message_id: Optional[str]
 
 
 class ReceiveMessagePayload(MessagePayload):

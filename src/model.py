@@ -98,10 +98,17 @@ class Tenant(DeclarativeBaseModel):
     __tablename__ = "tenant"
 
     id = Column(Integer, primary_key=True, nullable=False)
+    generated_fake_bills = Column(Boolean, nullable=False, default=False)
 
     users = relationship("User", back_populates="tenant")
     categories = relationship("Category", back_populates="tenant")
     bills = relationship("Bill", back_populates="tenant")
+
+    @classmethod
+    def get_by_id(cls, session, tenant_id):
+        return session.execute(
+            select(cls).where(cls.id == tenant_id)
+        ).scalar_one_or_none()
 
 
 class User(DeclarativeBaseModel):
@@ -112,6 +119,5 @@ class User(DeclarativeBaseModel):
     tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
     phone_number = Column(String(20), index=True, unique=True, nullable=False)
     tokens_per_hour = Column(Integer, nullable=False, default=5000)
-    generated_fake_bills = Column(Boolean, nullable=False, default=False)
 
     tenant = relationship("Tenant", back_populates="users")
