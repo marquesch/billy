@@ -60,11 +60,9 @@ class ConversationManager:
             if step_class:
                 return step_class(self.user, self.state)
             else:
-                self.log.info(
-                    f"Unknown next step: {next_step}, defaulting to InitialHandler"
-                )
+                self.log.info(f"Unknown next step: {next_step}, defaulting to Unknown")
 
-        return Step.registry["InitialHandler"](self.user, self.state)
+        return Step.registry["Unknown"](self.user, self.state)
 
     async def _send_message(self, message_body):
         response_payload = SendMessagePayload(

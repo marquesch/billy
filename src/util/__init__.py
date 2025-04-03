@@ -7,6 +7,7 @@ import time
 from src.util.log import Logger
 
 log_ctx: ContextVar[Logger] = ContextVar("logger_context")
+background_tasks = set()
 
 
 def set_logger(transaction_id=None):
@@ -54,6 +55,15 @@ def create_whatsapp_aligned_text(title: str, lines: dict | list[dict]) -> str:
             text += "\n"
 
     return text
+
+
+def run_in_background(func):
+    def wrapped(*args, **kwargs):
+        task = asyncio.create_task(func(*args, **kwargs))
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+
+    return wrapped
 
 
 def time_execution(logger=None, message=""):

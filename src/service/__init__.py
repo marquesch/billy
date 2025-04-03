@@ -14,11 +14,11 @@ import aio_pika
 
 
 class MessageProcessor:
-    def __init__(self, session_factory, shutdown_event):
+    def __init__(self, session_factory):
         self.session_factory = session_factory
         self.redis_client = redis_client
         self.logger = util.Logger("message_processor")
-        self.shutdown_event = shutdown_event
+        self.shutdown_event = asyncio.Event()
 
     async def start(self):
         await amqp_client.consume(AMQP_RECEIVE_MESSAGE_QUEUE, self._process_message)

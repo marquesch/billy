@@ -18,7 +18,6 @@ from src.schema import SendMessagePayload
 from src.schema import StepResult
 from src.service import amqp_client
 from src.service import redis_client
-from src.service.step.background import get_background_task_manager
 
 from sqlalchemy import and_
 from sqlalchemy import delete
@@ -257,11 +256,11 @@ class RegisterUser(TerminalStep):
 
 
 class InviteTenantMember(WaitingStep):
-    intent_description = "Se o usuário deseja convidar um membro do tenant"
+    intent_description = "Se o usuário deseja convidar um membro do tenant (família, grupo de pessoas...)"
 
     @property
     def question(self):
-        return "Qual o número de telefone do membro do tenant?"
+        return "Qual o número de telefone do novo membro?"
 
     @property
     def next_step(self):
@@ -285,6 +284,11 @@ class CheckTenantMemberNumber(WaitingStep):
     def question(self):
         phone_number = self.state["phone_number"]
 
+        formatted_phone_number = (
+            f"+{phone_number[0:2]} ({phone_number[2:6]}) "
+            f"{phone_number[6:10]}-{phone_number[10:12]}"
+        )
+
         if len(phone_number) < 12:
             message = (
                 "O número de telefone que você está tentando convidar é inválido. "
@@ -292,7 +296,7 @@ class CheckTenantMemberNumber(WaitingStep):
             )
 
         else:
-            message = f"O número de telefone que você está tentando convidar é {phone_number}?"
+            message = f"O número de telefone que você está tentando convidar é {formatted_phone_number}?"
 
         return message
 
@@ -310,15 +314,12 @@ class ProcessInviteTenantMember(TerminalStep):
     async def _process(self, message_payload):
         phone_number = self.state["phone_number"]
 
-        background_task_manager = get_background_task_manager()
-
-        background_task_manager.add(
-            invite_tenant_member, phone_number, self.user.tenant_id
-        )
+        invite_tenant_member(phone_number, self.user.tenant_id)
 
         return StepResult(message="Done")
 
 
+@util.run_in_background
 async def invite_tenant_member(phone_number, tenant_id):
     message_body = "Você foi convidado para fazer parte de um tenant. Confirma?"
 
@@ -599,6 +600,43 @@ class AnalyzeExpenses(TerminalStep):
         tokens_used += tokens
 
         return StepResult(tokens_used=tokens_used, message=analysis)
+
+
+class BeginBillReminder(Step):
+    intent_description = "Pedido para criar lembrete de conta"
+
+    async def _process(self, message_payload):
+        tokens_used, response = await ai.get_bill_reminder_recurrence(
+            message_payload.message_body
+        )
+
+        recurrence = response["value"]
+
+        match recurrence:
+            case "unknown":
+                return StepResult(
+                    tokens_used=tokens_used,
+                    message="Não ficou claro a recorrência da conta.",
+                )
+
+        self.state["recurrence"] = recurrence
+
+        if recurrence == "daily":
+            return StepResult(
+                tokens_used=tokens_used, next_step="RegisterRecurrentBill"
+            )
+
+        return StepResult(
+            tokens_used=tokens_used,
+            next_step="BillRecurrence",
+        )
+
+
+class BillRecurrence(Step):
+    async def _process(self, message_payload):
+        recurrence = self.state["recurrence"]
+
+        # TODO create logic. use weekdays (0...6)
 
 
 class Courtesy(TerminalStep):

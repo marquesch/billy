@@ -102,6 +102,13 @@ async def get_courtesy_answer(user_prompt):
     return tokens, answer["value"]
 
 
+async def get_bill_reminder_recurrence(user_prompt):
+    system_prompt = get_prompt("BILL_REMINDER_RECURRENCE")
+    schema = get_schema("BASIC_ANSWER")
+
+    return await generate_content([system_prompt, user_prompt], schema)
+
+
 async def generate_content(contents, schema=None, max_tokens=100):
     logger = Logger()
 
