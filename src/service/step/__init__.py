@@ -86,19 +86,6 @@ class InitialHandler(Step):
             return StepResult(next_step="HandleUserIntent")
 
 
-class HandleTenantInvitation(Step):
-    async def _process(self, message_payload):
-        tokens, confirmation = await ai.get_yes_or_no_answer(
-            message_payload.message_body
-        )
-
-        if confirmation:
-            return StepResult(tokens_used=tokens, next_step="BeginRegistration")
-
-        else:
-            return StepResult(tokens_used=tokens, message="Ok, tchau!")
-
-
 class BeginRegistration(Step):
     async def _process(self, message_payload):
         if self.state.get("tenant_id", None):
@@ -111,6 +98,38 @@ class BeginRegistration(Step):
         )
 
         return StepResult(message=message, next_step="AskUserName")
+
+
+class AskUserConsent(WaitingStep):
+    @property
+    def question(self):
+        return "Você gostaria de se cadastrar?"
+
+    @property
+    def next(self):
+        return "ProcessUserConsent"
+
+
+class CheckUserConsent(Step):
+    async def _process(self, message_payload):
+        tokens, confirmation = ai.get_yes_or_no_answer(message_payload.body)
+
+        next_step = "AskUserName" if confirmation else "SayGoodbye"
+
+        if confirmation:
+            message = "Que bom! Então vamos continuar."
+            next_step = "AskUserName"
+
+        else:
+            message = "Tudo bem, então. Se mudar de ideia, estarei aqui!"
+            next_step = "SayGoodbye"
+
+        return StepResult(tokens_used=tokens, message=message, next_step=next_step)
+
+
+class SayGoodbye(TerminalStep):
+    async def _process(self, message_payload):
+        return StepResult(message="Até mais!")
 
 
 class AskUserName(WaitingStep):
@@ -136,10 +155,10 @@ class ProcessUserName(Step):
 class AskUserDefaultCategories(WaitingStep):
     @property
     def question(self) -> str:
-        return (
-            "Quer cadastrar categorias recomendadas? São as seguintes: "
-            f"{[category for category in Category.BASIC_CATEGORIES.keys()]}"
+        categories_text = util.create_whatsapp_aligned_text(
+            "Categorias recomendadas", Category.BASIC_CATEGORIES
         )
+        return "Deseja cadastrar as categorias recomendadas?\n" + categories_text
 
     @property
     def next_step(self) -> str:
@@ -160,7 +179,12 @@ class ProcessUserDefaultCategories(Step):
 class AskUserRegisterFakeBills(WaitingStep):
     @property
     def question(self) -> str:
-        return "Quer gerar contas falsas?"
+        return (
+            "Se você não se sentir confortável em cadastrar contas reais, posso "
+            "cadastrar contas aleatórias para que você possa testar minhas "
+            "funcionalidades. \n"
+            "Deseja que eu faça isso?"
+        )
 
     @property
     def next_step(self) -> str:
@@ -284,15 +308,23 @@ class CheckTenantMemberNumber(WaitingStep):
     def question(self):
         phone_number = self.state["phone_number"]
 
-        formatted_phone_number = (
-            f"+{phone_number[0:2]} ({phone_number[2:6]}) "
-            f"{phone_number[6:10]}-{phone_number[10:12]}"
-        )
+        if len(phone_number) == 12:
+            formatted_phone_number = (
+                f"+{phone_number[0:2]} ({phone_number[2:4]}) "
+                f"{phone_number[4:8]}-{phone_number[8:12]}"
+            )
+        else:
+            formatted_phone_number = (
+                f"+{phone_number[0:2]} ({phone_number[2:4]}) "
+                f"{phone_number[4:9]}-{phone_number[9:13]}"
+            )
 
         if len(phone_number) < 12:
             message = (
                 "O número de telefone que você está tentando convidar é inválido. "
-                "Tente novamente."
+                "Tente novamente.\n"
+                "O número de telefone deve conter os dois dígitos do DDD e os "
+                "8 ou 9 dígitos do número. "
             )
 
         else:
@@ -314,16 +346,24 @@ class ProcessInviteTenantMember(TerminalStep):
     async def _process(self, message_payload):
         phone_number = self.state["phone_number"]
 
-        invite_tenant_member(phone_number, self.user.tenant_id)
+        invite_tenant_member(phone_number, self.user)
 
         return StepResult(message="Done")
 
 
 @util.run_in_background
-async def invite_tenant_member(phone_number, tenant_id):
-    message_body = "Você foi convidado para fazer parte de um tenant. Confirma?"
+async def invite_tenant_member(phone_number, inviter):
+    message_body = (
+        "Olá, eu sou Billy, seu assistente financeiro!\n"
+        "Você recebeu um convite para fazer parte de um grupo, para poderem cadastrar "
+        "e gerenciar contas juntos.\n"
+        "Você foi convidado por:\n"
+        f"*Nome*: {inviter.name}\n"
+        f"*Telefone*: {inviter.phone_number}\n\n"
+        "Você gostaria de se juntar a ele?"
+    )
 
-    state = dict(tenant_id=tenant_id, next_step="HandleTenantInvitation")
+    state = dict(tenant_id=inviter.tenant_id, next_step="HandleTenantInvitation")
 
     message_payload = SendMessagePayload(
         message_type="text",
@@ -338,6 +378,25 @@ async def invite_tenant_member(phone_number, tenant_id):
     )
 
     redis_client.set(f"user:{phone_number}:state", state)
+
+
+class HandleTenantInvitation(Step):
+    async def _process(self, message_payload):
+        tokens, confirmation = await ai.get_yes_or_no_answer(
+            message_payload.message_body
+        )
+
+        if confirmation:
+            message = None
+            next_step = "BeginRegistration"
+
+        else:
+            message = (
+                "Tudo bem. Caso queira se cadastrar fora desse grupo, é só me pedir!"
+            )
+            next_step = "SayGoodbye"
+
+        return StepResult(tokens_used=tokens, message=message, next_step=next_step)
 
 
 class HandleUserIntent(Step):
@@ -606,37 +665,8 @@ class BeginBillReminder(Step):
     intent_description = "Pedido para criar lembrete de conta"
 
     async def _process(self, message_payload):
-        tokens_used, response = await ai.get_bill_reminder_recurrence(
-            message_payload.message_body
-        )
-
-        recurrence = response["value"]
-
-        match recurrence:
-            case "unknown":
-                return StepResult(
-                    tokens_used=tokens_used,
-                    message="Não ficou claro a recorrência da conta.",
-                )
-
-        self.state["recurrence"] = recurrence
-
-        if recurrence == "daily":
-            return StepResult(
-                tokens_used=tokens_used, next_step="RegisterRecurrentBill"
-            )
-
-        return StepResult(
-            tokens_used=tokens_used,
-            next_step="BillRecurrence",
-        )
-
-
-class BillRecurrence(Step):
-    async def _process(self, message_payload):
-        recurrence = self.state["recurrence"]
-
-        # TODO create logic. use weekdays (0...6)
+        return StepResult(message="Not implemented yet.")
+        # TODO implement this
 
 
 class Courtesy(TerminalStep):

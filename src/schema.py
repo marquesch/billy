@@ -36,3 +36,4 @@ class StepResult(BaseModel):
     message: Optional[str] = None
     next_step: Optional[str] = None
     waiting_for_response: bool = False
+    quote_message: bool = False

@@ -34,7 +34,7 @@ class ConversationManager:
 
                 if result.message is not None:
                     self.log.info("Sending message")
-                    await self._send_message(result.message)
+                    await self._send_message(result.message, result.quote_message)
 
                 if result.next_step is None or result.waiting_for_response:
                     break
@@ -64,13 +64,18 @@ class ConversationManager:
 
         return Step.registry["Unknown"](self.user, self.state)
 
-    async def _send_message(self, message_body):
+    async def _send_message(self, message_body, must_quote_message=False):
+        quoted_message_id = None
+
+        if must_quote_message:
+            quoted_message_id = self.message_payload.message_id
+
         response_payload = SendMessagePayload(
             message_type="text",
             recipient_number=self.message_payload.sender_number,
             message_body=message_body,
             transaction_id=self.message_payload.transaction_id,
-            quoted_message_id=self.message_payload.message_id,
+            quoted_message_id=quoted_message_id,
         )
 
         body = json.dumps(response_payload.model_dump())
