@@ -722,7 +722,7 @@ class Usage(TerminalStep):
             "Para formatação, use apenas:\n"
             "*texto*: para texto em negrito\n"
             "- texto: para listas com marcadores\n"
-            "1. texto: para listas numeradas"
+            "1. texto, 2. texto, 3. texto: para listas numeradas"
         )
         for cls in Step.registry.values():
             if hasattr(cls, "intent_description"):
