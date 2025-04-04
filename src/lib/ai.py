@@ -100,7 +100,7 @@ async def get_courtesy_answer(user_prompt):
 
 
 async def get_usage_text(prompt):
-    return await generate_content(prompt, max_tokens=200)
+    return await generate_content(prompt, max_tokens=300)
 
 
 async def generate_content(contents, schema=None, max_tokens=100):

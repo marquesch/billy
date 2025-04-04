@@ -437,7 +437,13 @@ class HandleUserIntent(Step):
 
 
 class RegisterBill(TerminalStep):
-    intent_description = "Dados sobre uma compra"
+    intent_description = (
+        "Registrar uma despesa. O usuário pode falar de várias formas "
+        "possíveis, mas ele sempre vai falar o valor e o dia (relativo a hoje)."
+        "Por exemplo: 'gastei 30 reais em pizza hoje'"
+        "'registre uma despesa de 10,50 em cachorro quente'"
+        "'fiz uma compra no valor de 105 reais de um curso'"
+    )
 
     async def _process(self, message_payload):
         categories = [
@@ -474,7 +480,10 @@ class RegisterBill(TerminalStep):
 
 
 class RegisterCategory(TerminalStep):
-    intent_description = "Pedido para criar uma categoria de despesa"
+    intent_description = (
+        "Pedido para criar uma categoria de despesa"
+        "O usuário pode estar detalhando a descrição da categoria ou não."
+    )
 
     async def _process(self, message_payload):
         tokens, category_dict = await ai.get_category_to_register(
@@ -501,7 +510,7 @@ class RegisterCategory(TerminalStep):
 
 
 class DeleteBill(TerminalStep):
-    intent_description = "Pedido para deletar uma despesa"
+    intent_description = "Pedido para excluir uma despesa"
 
     async def _process(self, message_payload):
         message = (
@@ -537,7 +546,9 @@ class DeleteBill(TerminalStep):
 
 class SumBills(TerminalStep):
     intent_description = (
-        "Pedido de quanto ele gastou em um período ou em um dia específico"
+        "Pedido de quanto ele gastou em um período ou em um dia específico."
+        "Ele deve citar o dia ou período, e opcionalmente qual categoria."
+        "O usuário não vai citar valores especificamente."
     )
 
     async def _process(self, message_payload):
@@ -586,7 +597,7 @@ class SumBills(TerminalStep):
 
 
 class ListCategories(TerminalStep):
-    intent_description = "Pedido para listar categorias"
+    intent_description = "Pedido para listar categorias."
 
     async def _process(self, message_payload):
         categories = [
@@ -600,7 +611,9 @@ class ListCategories(TerminalStep):
 
 
 class RegisterFakeBills(TerminalStep):
-    intent_description = "Pedido para registrar despesas falsas"
+    intent_description = (
+        "Pedido para registrar despesas falsas para testar as funcionalidades."
+    )
 
     async def _process(self, message_payload):
         if self.user.tenant.generated_fake_bills:
@@ -644,7 +657,12 @@ class DeleteFakeBills(TerminalStep):
 
 
 class AnalyzeExpenses(TerminalStep):
-    intent_description = "Pedido para analisar gastos"
+    intent_description = (
+        "Pedido para analisar gastos. O usuário pode pedir para você "
+        "fazer uma análise, analisar, resumir ou quaisquer sinônimos "
+        "dessas palavras. Ele deve citar também um período. Opcionalmente, "
+        "pode citar uma categoria"
+    )
 
     async def _process(self, message_payload):
         categories = [
@@ -689,7 +707,9 @@ class BeginBillReminder(Step):
 
 class Usage(TerminalStep):
     intent_description = (
-        "Se o usuário estiver perguntando sobre quais funções ele pode usar"
+        "Se o usuário estiver perguntando sobre quais funções ele pode usar."
+        "Ele pode perguntar quais são os comandos que ele pode usar, ou até "
+        "como você pode ajudá-lo."
     )
 
     async def _process(self, message_payload):
