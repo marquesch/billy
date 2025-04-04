@@ -120,6 +120,6 @@ class User(DeclarativeBaseModel):
     name = Column(String(80), nullable=False)
     tenant_id = Column(Integer, ForeignKey("tenant.id"), nullable=False)
     phone_number = Column(String(20), index=True, unique=True, nullable=False)
-    tokens_per_hour = Column(Integer, nullable=False, default=5000)
+    tokens_per_hour = Column(Integer, nullable=False, default=20000)
 
     tenant = relationship("Tenant", back_populates="users")
