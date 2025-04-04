@@ -25,7 +25,9 @@ def reset_logger(token):
 def formatted_date(date: str | datetime) -> str:
     if isinstance(date, datetime):
         return date.strftime("%d/%m/%Y")
-    else:
+    try:
+        return datetime.strptime(date, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except ValueError:
         return date
 
 

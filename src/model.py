@@ -1,3 +1,5 @@
+from src.util import formatted_date
+
 from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import DateTime
@@ -86,10 +88,10 @@ class Bill(DeclarativeBaseModel):
             select(cls).where(cls.message_id == message_id, cls.tenant_id == tenant_id)
         ).scalar_one_or_none()
 
-    def to_basic_dict(self):
+    def to_dict(self):
         return dict(
             value=self.value,
-            date=self.date,
+            date=formatted_date(self.date),
             category_id=self.category_id,
         )
 

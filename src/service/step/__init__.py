@@ -24,6 +24,8 @@ from sqlalchemy import delete
 from sqlalchemy import func
 from sqlalchemy import select
 
+SOON_MESSAGE = "Ainda não tenho essa funcionalidade. Mas logo logo estará disponível."
+
 
 class Step:
     registry: ClassVar = {}
@@ -155,9 +157,7 @@ class ProcessUserName(Step):
 class AskUserDefaultCategories(WaitingStep):
     @property
     def question(self) -> str:
-        categories_text = util.create_whatsapp_aligned_text(
-            "Categorias recomendadas", Category.BASIC_CATEGORIES
-        )
+        categories_text = ", ".join(Category.BASIC_CATEGORIES.keys())
         return "Deseja cadastrar as categorias recomendadas?\n" + categories_text
 
     @property
@@ -180,8 +180,8 @@ class AskUserRegisterFakeBills(WaitingStep):
     @property
     def question(self) -> str:
         return (
-            "Se você não se sentir confortável em cadastrar contas reais, posso "
-            "cadastrar contas aleatórias para que você possa testar minhas "
+            "Se você não se sentir confortável em cadastrar despesas reais, posso "
+            "cadastrar despesas aleatórias para que você possa testar minhas "
             "funcionalidades. \n"
             "Deseja que eu faça isso?"
         )
@@ -240,6 +240,7 @@ class RegisterUser(TerminalStep):
                 )
 
             self.session.add_all(categories)
+            self.session.flush()
 
             if register_fake_bills:
                 self.log.info("Registering fake bills")
@@ -250,7 +251,7 @@ class RegisterUser(TerminalStep):
 
                 title = (
                     "*Registro concluído com sucesso!*\n"
-                    f"Cadastrei também {total} contas falsas. "
+                    f"Cadastrei também {total} despesas falsas. "
                     "Caso queira excluí-las, é só pedir!"
                 )
 
@@ -272,7 +273,7 @@ class RegisterUser(TerminalStep):
                 "Nome": user.name,
                 "Número de telefone": user.phone_number,
                 "Tokens por hora": user.tokens_per_hour,
-                "Contas falsas?": "Sim" if register_fake_bills else "Não",
+                "Despesas falsas?": "Sim" if register_fake_bills else "Não",
             },
         )
 
@@ -284,7 +285,10 @@ class InviteTenantMember(WaitingStep):
 
     @property
     def question(self):
-        return "Qual o número de telefone do novo membro?"
+        return (
+            "Qual o número de telefone do novo membro? Certifique-se"
+            "de que o número de telefone é o número cadastrado no WhatsApp."
+        )
 
     @property
     def next_step(self):
@@ -348,18 +352,34 @@ class ProcessInviteTenantMember(TerminalStep):
 
         invite_tenant_member(phone_number, self.user)
 
-        return StepResult(message="Done")
+        message = (
+            "Se esse número tiver uma despesa do WhatsApp associada, "
+            "ele receberá um convite."
+        )
+
+        return StepResult(message=message)
 
 
 @util.run_in_background
 async def invite_tenant_member(phone_number, inviter):
+    if len(inviter.phone_number) == 12:
+        formatted_phone_number = (
+            f"+{inviter.phone_number[0:2]} ({inviter.phone_number[2:4]}) "
+            f"{inviter.phone_number[4:8]}-{inviter.phone_number[8:12]}"
+        )
+    else:
+        formatted_phone_number = (
+            f"+{inviter.phone_number[0:2]} ({inviter.phone_number[2:4]}) "
+            f"{inviter.phone_number[4:9]}-{inviter.phone_number[9:13]}"
+        )
+
     message_body = (
         "Olá, eu sou Billy, seu assistente financeiro!\n"
         "Você recebeu um convite para fazer parte de um grupo, para poderem cadastrar "
-        "e gerenciar contas juntos.\n"
+        "e gerenciar despesas juntos.\n"
         "Você foi convidado por:\n"
         f"*Nome*: {inviter.name}\n"
-        f"*Telefone*: {inviter.phone_number}\n\n"
+        f"*Telefone*: {formatted_phone_number}\n\n"
         "Você gostaria de se juntar a ele?"
     )
 
@@ -442,7 +462,7 @@ class RegisterBill(TerminalStep):
         self.session.flush()
 
         message = util.create_whatsapp_aligned_text(
-            "Conta registrada",
+            "Despesa registrada",
             {
                 "Valor": bill.value,
                 "Categoria": bill.category.name,
@@ -450,7 +470,7 @@ class RegisterBill(TerminalStep):
             },
         )
 
-        return StepResult(tokens_used=tokens, message=message)
+        return StepResult(tokens_used=tokens, message=message, quote_message=True)
 
 
 class RegisterCategory(TerminalStep):
@@ -477,17 +497,17 @@ class RegisterCategory(TerminalStep):
             },
         )
 
-        return StepResult(tokens_used=tokens, message=message)
+        return StepResult(tokens_used=tokens, message=message, quote_message=True)
 
 
 class DeleteBill(TerminalStep):
-    intent_description = "Pedido para deletar uma conta"
+    intent_description = "Pedido para deletar uma despesa"
 
     async def _process(self, message_payload):
         message = (
             "Para que eu possa entender qual mensagem você quer excluir, "
             "por favor, responda à mensagem que você enviou que "
-            "criou a conta que vocé quer excluir."
+            "criou a despesa que vocé quer excluir."
         )
 
         if message_payload.quoted_message_id is not None:
@@ -496,13 +516,13 @@ class DeleteBill(TerminalStep):
             )
 
             message = (
-                "Não consegui encontrar a conta a ser excluída. "
+                "Não consegui encontrar a despesa a ser excluída. "
                 "Ou ela já foi excluída ou você respondeu a mensagem errada."
             )
 
             if bill_to_delete is not None:
                 message = util.create_whatsapp_aligned_text(
-                    "Conta excluida",
+                    "Despesa excluida",
                     {
                         "Valor": bill_to_delete.value,
                         "Categoria": bill_to_delete.category.name,
@@ -547,7 +567,7 @@ class SumBills(TerminalStep):
 
         sum_value = self.session.execute(query).scalar() or 0
 
-        message = "Soma das contas "
+        message = "Soma das despesas "
         if len(query_data["range"]) == 1:
             day = query_data["range"][0]
             message += f"do dia {util.formatted_date(day)}"
@@ -580,12 +600,12 @@ class ListCategories(TerminalStep):
 
 
 class RegisterFakeBills(TerminalStep):
-    intent_description = "Pedido para registrar contas falsas"
+    intent_description = "Pedido para registrar despesas falsas"
 
     async def _process(self, message_payload):
         if self.user.tenant.generated_fake_bills:
             message = (
-                "Você já gerou contas falsas. Infelizmente, "
+                "Você já gerou despesas falsas. Infelizmente, "
                 "eu não posso fazer esse processo novamente."
             )
             return StepResult(message=message)
@@ -601,13 +621,13 @@ class RegisterFakeBills(TerminalStep):
         self.user.tenant.generated_fake_bills = True
         self.session.flush()
 
-        message = f"Criei um total de {total} contas falsas!"
+        message = f"Criei um total de {total} despesas falsas!"
 
         return StepResult(message=message)
 
 
 class DeleteFakeBills(TerminalStep):
-    intent_description = "Pedido para deletar contas falsas"
+    intent_description = "Pedido para deletar despesas falsas"
 
     async def _process(self, message_payload):
         self.log.info("Deleting fake bills")
@@ -618,9 +638,7 @@ class DeleteFakeBills(TerminalStep):
             )
         ).rowcount
 
-        message = (
-            f"Removi todas as suas contas falsas.\nRemovi um total de *{count}* contas."
-        )
+        message = f"Removi todas as suas despesas falsas.\nRemovi um total de *{count}* despesas."
 
         return StepResult(message=message)
 
@@ -652,7 +670,7 @@ class AnalyzeExpenses(TerminalStep):
         if category_id := query_data.get("category_id", None):
             params["category_id"] = category_id
 
-        bills = Bill.get_many(**params)
+        bills = [bill.to_dict() for bill in Bill.get_many(**params).all()]
 
         tokens, analysis = await ai.get_expenses_analysis(categories, bills)
 
@@ -662,15 +680,44 @@ class AnalyzeExpenses(TerminalStep):
 
 
 class BeginBillReminder(Step):
-    intent_description = "Pedido para criar lembrete de conta"
+    # intent_description = "Pedido para criar lembrete de despesa"
 
     async def _process(self, message_payload):
-        return StepResult(message="Not implemented yet.")
+        return StepResult(message=SOON_MESSAGE)
         # TODO implement this
 
 
+class Usage(TerminalStep):
+    intent_description = (
+        "Se o usuário estiver perguntando sobre quais funções ele pode usar"
+    )
+
+    async def _process(self, message_payload):
+        prompt = (
+            "Você é um assistente chamado Billy que auxilia pessoas a se organizar "
+            "financeiramente. O usuário deseja saber quais funções ele pode usar."
+            "Considerando as seguintes possibilidades, formule uma resposta breve "
+            "dizendo quais funções ele pode usar. Descreva além do que está definido "
+            "nas possibilidades. Não faça saudações ou despedidas."
+            "Para formatação, use apenas:\n"
+            "*texto*: para texto em negrito\n"
+            "- texto: para listas com marcadores\n"
+            "1. texto: para listas numeradas"
+        )
+        for cls in Step.registry.values():
+            if hasattr(cls, "intent_description"):
+                prompt += f"\n- {cls.intent_description}"
+
+        tokens, message = await ai.get_usage_text(prompt)
+
+        return StepResult(tokens_used=tokens, message=message)
+
+
 class Courtesy(TerminalStep):
-    intent_description = "Se o usuário estiver somente agradecendo"
+    intent_description = (
+        "Se o usuário estiver somente agradecendo, fazendo uma saudação ou "
+        "despedida. O usuário pode estar falando de uma forma bastante coloquial"
+    )
 
     async def _process(self, message_payload):
         tokens_used, message = await ai.get_courtesy_answer(
@@ -680,13 +727,13 @@ class Courtesy(TerminalStep):
         return StepResult(tokens_used=tokens_used, message=message)
 
 
-class Unknown(TerminalStep):
+class Unknown(Step):
     intent_description = "Se o pedido do usuário não se encaixa em nenhuma outra opção"
 
     async def _process(self, message_payload):
-        message = "Eu não entendi o que você disse."
+        message = "Eu não entendi o que você quis dizer."
 
-        return StepResult(message=message)
+        return StepResult(message=message, next_step="Usage")
 
 
 def _register_fake_bills(categories, message_id, tenant, session):

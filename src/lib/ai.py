@@ -2,8 +2,6 @@ from datetime import datetime
 import json
 import os
 
-from src.util import Logger
-
 from google import genai
 from google.genai.types import GenerateContentConfig
 from httpx import ConnectError
@@ -90,28 +88,22 @@ async def get_expenses_analysis(categories, bills):
         "ANALYZE_EXPENSE_TREND", categories=categories, bills=bills
     )
 
-    return await generate_content(system_prompt, max_tokens=200)
+    return await generate_content(system_prompt, max_tokens=300)
 
 
 async def get_courtesy_answer(user_prompt):
     system_prompt = get_prompt("COURTESY_ANSWER")
-    schema = get_schema("BASIC_ANSWER")
 
-    tokens, answer = await generate_content([system_prompt, user_prompt], schema)
+    tokens, answer = await generate_content([system_prompt, user_prompt])
 
-    return tokens, answer["value"]
+    return tokens, answer
 
 
-async def get_bill_reminder_recurrence(user_prompt):
-    system_prompt = get_prompt("BILL_REMINDER_RECURRENCE")
-    schema = get_schema("BASIC_ANSWER")
-
-    return await generate_content([system_prompt, user_prompt], schema)
+async def get_usage_text(prompt):
+    return await generate_content(prompt, max_tokens=200)
 
 
 async def generate_content(contents, schema=None, max_tokens=100):
-    logger = Logger()
-
     for _ in range(REQUEST_RETRIES):
         try:
             response = await client.aio.models.generate_content(
@@ -119,8 +111,6 @@ async def generate_content(contents, schema=None, max_tokens=100):
                 contents=contents,
                 config=get_config(max_tokens, schema),
             )
-
-            logger.info(response.text)
 
             if schema is not None:
                 resp = json.loads(response.text)

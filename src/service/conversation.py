@@ -62,7 +62,7 @@ class ConversationManager:
             else:
                 self.log.info(f"Unknown next step: {next_step}, defaulting to Unknown")
 
-        return Step.registry["Unknown"](self.user, self.state)
+        return Step.registry["InitialHandler"](self.user, self.state)
 
     async def _send_message(self, message_body, must_quote_message=False):
         quoted_message_id = None
