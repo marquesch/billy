@@ -775,8 +775,65 @@ class Usage(TerminalStep):
         6. Fazer uma breve análise dos gastos em um período - 'faça uma análise dos meus gastos no mês passado';
         7. Listar categorias - 'liste minhas categorias';
         8. Convidar outras pessoas para compartilhar despesas com você - 'gostaria de convidar um amigo para o meu grupo';
+        9. Pedir para parar de receber ou voltar a receber notificações a respeito de novas versões;
         """
         return StepResult(message=message)
+
+
+class AskUserInfo(TerminalStep):
+    intent_description = (
+        "Se o usuário estiver querendo saber sobre seu nome ou quantidade de tokens"
+    )
+
+    async def _process(self, message_payload):
+        tokens_usage = redis_client.get_many(
+            f"user:{message_payload.sender_number}:token_usage:*"
+        )
+
+        tokens_used = 0
+
+        for token_usage in tokens_usage:
+            tokens_used += int(token_usage)
+
+        if self.user.name is None:
+            return StepResult(message="Não encontrei um usuário com seu número")
+
+        message = (
+            f"{self.user.name}, você gastou {tokens_used} de um máximo de "
+            f"{self.user.tokens_per_hour} tokens por hora"
+        )
+
+        return StepResult(message=message)
+
+
+class ChangeName(WaitingStep):
+    intent_description = "Se o usuário estiver querendo mudar seu nome de usuário."
+
+    @property
+    def question(self):
+        return "Qual o novo nome de usuário?"
+
+    @property
+    def next_step(self):
+        return "UpdateUserName"
+
+
+class UpdateUserName(TerminalStep):
+    async def _process(self, message_payload):
+        user = self.session.execute(
+            select(User).where(User.phone_number == message_payload.sender_number)
+        ).scalar_one_or_none()
+
+        if not user:
+            return StepResult(message="Não encontrei um usuário com seu número")
+
+        user.name = message_payload.message_body
+
+        self.session.commit()
+
+        return StepResult(
+            message=f"Nome atualizado com sucesso! Seu novo nome agora é {user.name}"
+        )
 
 
 class Courtesy(TerminalStep):
