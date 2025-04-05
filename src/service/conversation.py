@@ -13,11 +13,13 @@ from sqlalchemy import select
 
 
 class ConversationManager:
-    def __init__(self, message_payload=None, state={}):
+    def __init__(self, message_payload=None, state={}, tokens_used=0):
         self.message_payload = message_payload
         self.state = state
         self.session = database.get_db_session()
         self.log = util.get_logger()
+
+        self.tokens_used = tokens_used
 
         self.user = self.session.execute(
             select(User).where(User.phone_number == message_payload.sender_number)
@@ -25,6 +27,14 @@ class ConversationManager:
 
     async def process(self):
         try:
+            # TODO move this to another place so user can query his tokens after he used all of them
+            if self.user is not None:
+                if self.tokens_used >= self.user.tokens_per_hour:
+                    await self._send_message(
+                        "Limite de tokens atingido, tente novamente mais tarde."
+                    )
+                    return (0, {})
+
             step = self._determine_starting_step()
             tokens_used = 0
             while True:

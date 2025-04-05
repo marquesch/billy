@@ -91,3 +91,26 @@ def time_execution(logger=None, message=""):
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
     return wrapped
+<<<<<<< Updated upstream
+=======
+
+
+def get_current_version():
+    with open("data/changelog.json", "r") as f:
+        data = json.load(f)
+        return len(data)
+
+
+def get_version_changes(version_index):
+    with open("data/changelog.json", "r") as f:
+        data = json.load(f)
+
+        if version_index == len(data) - 1:
+            return []
+
+        full_changelog = []
+        for version_data in data[version_index + 1 :]:
+            full_changelog.append((version_data))
+
+    return full_changelog
+>>>>>>> Stashed changes
