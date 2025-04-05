@@ -259,6 +259,7 @@ class RegisterUser(TerminalStep):
             name=self.state["name"],
             phone_number=message_payload.sender_number,
             tenant_id=tenant.id,
+            last_version_notified=util.get_current_version(),
         )
 
         self.session.add(user)
@@ -703,6 +704,56 @@ class BeginBillReminder(Step):
     async def _process(self, message_payload):
         return StepResult(message=SOON_MESSAGE)
         # TODO implement this
+
+
+class StopReceivingNotifications(TerminalStep):
+    intent_description = (
+        "O usuário não quer mais receber notificações a respeito de novas versões"
+    )
+
+    async def _process(self, message_payload):
+        user = self.session.execute(
+            select(User).where(User.phone_number == message_payload.sender_number)
+        ).scalar_one_or_none()
+
+        if not user:
+            return StepResult(message="Não encontrei um usuário com seu número")
+
+        user.send_notification = False
+
+        self.session.commit()
+
+        return StepResult(
+            message=(
+                "Não enviarei mais notificações para você. Caso mude de ideia, "
+                "você pode reativar as notificações. Até mais!"
+            )
+        )
+
+
+class ActivateNotifications(TerminalStep):
+    intent_description = (
+        "O usuário quer receber notificações a respeito de novas versões"
+    )
+
+    async def _process(self, message_payload):
+        user = self.session.execute(
+            select(User).where(User.phone_number == message_payload.sender_number)
+        ).scalar_one_or_none()
+
+        if not user:
+            return StepResult(message="Não encontrei um usuário com seu número")
+
+        if user.send_notification:
+            return StepResult(message="Você já está recebendo notificações!")
+
+        user.send_notification = True
+
+        self.session.commit()
+
+        return StepResult(
+            message=("Voltarei a enviar notificações para vocês. Até mais!")
+        )
 
 
 class Usage(TerminalStep):

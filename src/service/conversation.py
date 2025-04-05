@@ -81,3 +81,15 @@ class ConversationManager:
         body = json.dumps(response_payload.model_dump())
 
         await amqp_client.publish(body, AMQP_SEND_MESSAGE_QUEUE)
+
+
+async def send_message(message_body, phone_number):
+    response_payload = SendMessagePayload(
+        message_type="text",
+        recipient_number=phone_number,
+        message_body=message_body,
+    )
+
+    body = json.dumps(response_payload.model_dump())
+
+    await amqp_client.publish(body, AMQP_SEND_MESSAGE_QUEUE)
