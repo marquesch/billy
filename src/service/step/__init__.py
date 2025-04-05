@@ -726,14 +726,15 @@ class StopReceivingNotifications(TerminalStep):
         return StepResult(
             message=(
                 "Não enviarei mais notificações para você. Caso mude de ideia, "
-                "você pode reativar as notificações. Até mais!"
+                "você pode reativar as notificações.\nAté mais!"
             )
         )
 
 
 class ActivateNotifications(TerminalStep):
     intent_description = (
-        "O usuário quer receber notificações a respeito de novas versões"
+        "O usuário quer receber notificações a respeito de novas versões. "
+        "Ele pode também somente dizer 'não quero mais receber notificações'."
     )
 
     async def _process(self, message_payload):
@@ -752,7 +753,7 @@ class ActivateNotifications(TerminalStep):
         self.session.commit()
 
         return StepResult(
-            message=("Voltarei a enviar notificações para vocês. Até mais!")
+            message=("Voltarei a enviar notificações para você.\nAté mais!")
         )
 
 
@@ -797,7 +798,7 @@ class Unknown(TerminalStep):
 
     async def _process(self, message_payload):
         message = (
-            "Eu não entendi o que você quis dizer. Se quiser saber o que eu posso "
+            "Eu não entendi o que você quis dizer.\nSe quiser saber o que eu posso "
             "fazer, é só pedir."
         )
 

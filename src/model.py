@@ -122,6 +122,6 @@ class User(DeclarativeBaseModel):
     phone_number = Column(String(20), index=True, unique=True, nullable=False)
     tokens_per_hour = Column(Integer, nullable=False, default=20000)
     send_notification = Column(Boolean, nullable=False, default=True)
-    last_version_notified = Column(Integer, nullable=True, default=0)
+    last_version_notified = Column(Integer, nullable=False, default=0)
 
     tenant = relationship("Tenant", back_populates="users")

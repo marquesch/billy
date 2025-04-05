@@ -1,5 +1,6 @@
 import json
 import traceback
+import uuid
 
 from src import database
 from src import util
@@ -88,6 +89,7 @@ async def send_message(message_body, phone_number):
         message_type="text",
         recipient_number=phone_number,
         message_body=message_body,
+        transaction_id=uuid.uuid4().hex,
     )
 
     body = json.dumps(response_payload.model_dump())

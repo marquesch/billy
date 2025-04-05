@@ -109,6 +109,6 @@ def get_version_changes(version_index):
 
         full_changelog = []
         for version_data in data[version_index + 1 :]:
-            full_changelog.append((version_data.items()))
+            full_changelog.append((version_data))
 
     return full_changelog
