@@ -2,6 +2,7 @@ import asyncio
 from contextvars import ContextVar
 from datetime import datetime
 import functools
+import json
 import time
 
 from src.util.log import Logger
@@ -91,3 +92,23 @@ def time_execution(logger=None, message=""):
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
     return wrapped
+
+
+def get_current_version():
+    with open("data/changelog.json", "r") as f:
+        data = json.load(f)
+        return len(data)
+
+
+def get_version_changes(version_index):
+    with open("data/changelog.json", "r") as f:
+        data = json.load(f)
+
+        if version_index == len(data) - 1:
+            return None
+
+        full_changelog = []
+        for version_data in data[version_index + 1 :]:
+            full_changelog.append((version_data))
+
+    return full_changelog

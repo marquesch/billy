@@ -1,5 +1,6 @@
 import json
 import traceback
+import uuid
 
 from src import database
 from src import util
@@ -81,3 +82,16 @@ class ConversationManager:
         body = json.dumps(response_payload.model_dump())
 
         await amqp_client.publish(body, AMQP_SEND_MESSAGE_QUEUE)
+
+
+async def send_message(message_body, phone_number):
+    response_payload = SendMessagePayload(
+        message_type="text",
+        recipient_number=phone_number,
+        message_body=message_body,
+        transaction_id=uuid.uuid4().hex,
+    )
+
+    body = json.dumps(response_payload.model_dump())
+
+    await amqp_client.publish(body, AMQP_SEND_MESSAGE_QUEUE)

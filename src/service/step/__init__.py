@@ -259,6 +259,7 @@ class RegisterUser(TerminalStep):
             name=self.state["name"],
             phone_number=message_payload.sender_number,
             tenant_id=tenant.id,
+            last_version_notified=util.get_current_version(),
         )
 
         self.session.add(user)
@@ -705,6 +706,57 @@ class BeginBillReminder(Step):
         # TODO implement this
 
 
+class StopReceivingNotifications(TerminalStep):
+    intent_description = (
+        "O usuário não quer mais receber notificações a respeito de novas versões"
+    )
+
+    async def _process(self, message_payload):
+        user = self.session.execute(
+            select(User).where(User.phone_number == message_payload.sender_number)
+        ).scalar_one_or_none()
+
+        if not user:
+            return StepResult(message="Não encontrei um usuário com seu número")
+
+        user.send_notification = False
+
+        self.session.commit()
+
+        return StepResult(
+            message=(
+                "Não enviarei mais notificações para você. Caso mude de ideia, "
+                "você pode reativar as notificações.\nAté mais!"
+            )
+        )
+
+
+class ActivateNotifications(TerminalStep):
+    intent_description = (
+        "O usuário quer receber notificações a respeito de novas versões. "
+        "Ele pode também somente dizer 'não quero mais receber notificações'."
+    )
+
+    async def _process(self, message_payload):
+        user = self.session.execute(
+            select(User).where(User.phone_number == message_payload.sender_number)
+        ).scalar_one_or_none()
+
+        if not user:
+            return StepResult(message="Não encontrei um usuário com seu número")
+
+        if user.send_notification:
+            return StepResult(message="Você já está recebendo notificações!")
+
+        user.send_notification = True
+
+        self.session.commit()
+
+        return StepResult(
+            message=("Voltarei a enviar notificações para você.\nAté mais!")
+        )
+
+
 class Usage(TerminalStep):
     intent_description = (
         "Se o usuário estiver perguntando sobre quais funções ele pode usar."
@@ -746,7 +798,7 @@ class Unknown(TerminalStep):
 
     async def _process(self, message_payload):
         message = (
-            "Eu não entendi o que você quis dizer. Se quiser saber o que eu posso "
+            "Eu não entendi o que você quis dizer.\nSe quiser saber o que eu posso "
             "fazer, é só pedir."
         )
 
