@@ -13,12 +13,12 @@ LLM_MODEL = os.getenv("LLM_MODEL", "")
 PROMPTS_FILE_PATH = "data/ai.json"
 
 
-def get_config(max_tokens, response_schema=None):
+def get_config(max_tokens, response_schema=None, temperature=0.0):
     response_mime_type = (
         "application/json" if response_schema is not None else "text/plain"
     )
     return GenerateContentConfig(
-        temperature=0,
+        temperature=temperature,
         max_output_tokens=max_tokens,
         response_mime_type=response_mime_type,
         response_schema=response_schema,
@@ -88,28 +88,26 @@ async def get_expenses_analysis(categories, bills):
         "ANALYZE_EXPENSE_TREND", categories=categories, bills=bills
     )
 
-    return await generate_content(system_prompt, max_tokens=300)
+    return await generate_content(system_prompt, max_tokens=300, temperature=0.7)
 
 
 async def get_courtesy_answer(user_prompt):
     system_prompt = get_prompt("COURTESY_ANSWER")
 
-    tokens, answer = await generate_content([system_prompt, user_prompt])
+    tokens, answer = await generate_content(
+        [system_prompt, user_prompt], temperature=0.7
+    )
 
     return tokens, answer
 
 
-async def get_usage_text(prompt):
-    return await generate_content(prompt, max_tokens=300)
-
-
-async def generate_content(contents, schema=None, max_tokens=100):
+async def generate_content(contents, schema=None, max_tokens=100, temperature=0.0):
     for _ in range(REQUEST_RETRIES):
         try:
             response = await client.aio.models.generate_content(
                 model=LLM_MODEL,
                 contents=contents,
-                config=get_config(max_tokens, schema),
+                config=get_config(max_tokens, schema, temperature),
             )
 
             if schema is not None:

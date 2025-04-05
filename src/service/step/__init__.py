@@ -713,24 +713,18 @@ class Usage(TerminalStep):
     )
 
     async def _process(self, message_payload):
-        prompt = (
-            "Você é um assistente chamado Billy que auxilia pessoas a se organizar "
-            "financeiramente. O usuário deseja saber quais funções ele pode usar."
-            "Considerando as seguintes possibilidades, formule uma resposta breve "
-            "dizendo quais funções ele pode usar. Descreva além do que está definido "
-            "nas possibilidades. Não faça saudações ou despedidas."
-            "Para formatação, use apenas:\n"
-            "*texto*: para texto em negrito\n"
-            "- texto: para listas com marcadores\n"
-            "1. texto, 2. texto, 3. texto: para listas numeradas"
-        )
-        for cls in Step.registry.values():
-            if hasattr(cls, "intent_description"):
-                prompt += f"\n- {cls.intent_description}"
-
-        tokens, message = await ai.get_usage_text(prompt)
-
-        return StepResult(tokens_used=tokens, message=message)
+        message = """
+        Minhas funcionalidades, seguidos de exemplos de comandos, são:
+        1. Cadastrar categorias de despesas - 'cadastre categoria pesca para tudo relacionado a pescaria';
+        2. Cadastrar despesas - 'gastei 30 reais no restaurante hoje';
+        3. Somar despesas em um dia ou período - 'quanto gastei em alimentação ontem?';
+        4. Cadastrar despesas fictícias (caso ainda não tenha cadastrado) - 'cadastre despesas fictícias';
+        5. Excluir despesas fictícias - 'exclua despesas fictícias';
+        6. Fazer uma breve análise dos gastos em um período - 'faça uma análise dos meus gastos no mês passado';
+        7. Listar categorias - 'liste minhas categorias';
+        8. Convidar outras pessoas para compartilhar despesas com você - 'gostaria de convidar um amigo para o meu grupo';
+        """
+        return StepResult(message=message)
 
 
 class Courtesy(TerminalStep):
@@ -747,13 +741,16 @@ class Courtesy(TerminalStep):
         return StepResult(tokens_used=tokens_used, message=message)
 
 
-class Unknown(Step):
+class Unknown(TerminalStep):
     intent_description = "Se o pedido do usuário não se encaixa em nenhuma outra opção"
 
     async def _process(self, message_payload):
-        message = "Eu não entendi o que você quis dizer."
+        message = (
+            "Eu não entendi o que você quis dizer. Se quiser saber o que eu posso "
+            "fazer, é só pedir."
+        )
 
-        return StepResult(message=message, next_step="Usage")
+        return StepResult(message=message)
 
 
 def _register_fake_bills(categories, message_id, tenant, session):
