@@ -1,7 +1,9 @@
 [
     {
         "version": "0.1.0",
-        "changelog": ["Lançamento"]
+        "changelog": [
+            "Lançamento"
+        ]
     },
     {
         "version": "0.1.1",
@@ -10,10 +12,10 @@
             "Aumentada a temperatura da IA para respostas criativas do Billy",
             "Adicionado aviso de atualização para os usuários"
         ]
-    }
+    },
     {
         "version": "0.1.2",
-        "changelog":[
+        "changelog": [
             "Adicionada possibilidade de alteração de nome",
             "Adicionada possibilidade de visualizar nome e tokens usados/máximos do usuário",
             "Adicionada funcionalidade de humor do billy - inspirado por https://www.mehumilhe.com/ e https://humilhadordegithub.vercel.app/ - cuidado com o sarcástico ;)"
