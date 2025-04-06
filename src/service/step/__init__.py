@@ -11,6 +11,7 @@ from src import util
 from src.amqp import AMQP_SEND_MESSAGE_QUEUE
 from src.lib import ai
 from src.model import Bill
+from src.model import BillyMood
 from src.model import Category
 from src.model import Tenant
 from src.model import User
@@ -44,6 +45,18 @@ class Step:
         self.log.info(f"Processing step: {self.__class__.__name__}")
         result = await self._process(message_payload)
 
+        if (
+            result.message is not None
+            and self.user
+            and self.user.billy_mood != BillyMood.NEUTRAL
+        ):
+            tokens_used, message = await ai.get_billy_mood_response(
+                result.message, self.user.billy_mood.value
+            )
+
+            result.tokens_used += tokens_used
+            result.message = message
+
         if result.waiting_for_response:
             self.state["next_step"] = result.next_step
 
@@ -73,7 +86,7 @@ class WaitingStep(Step):
 
 class TerminalStep(Step):
     async def process(self, message_payload):
-        result = await self._process(message_payload)
+        result = await super().process(message_payload)
 
         self.state.clear()
 
@@ -833,6 +846,47 @@ class UpdateUserName(TerminalStep):
 
         return StepResult(
             message=f"Nome atualizado com sucesso! Seu novo nome agora é {user.name}"
+        )
+
+
+class UpdateBillyMood(WaitingStep):
+    intent_description = "Se o usuário quiser alterar o humor do agente"
+
+    @property
+    def question(self):
+        return (
+            "Qual humor você escolhe para o agente?\n"
+            "Neutro, sarcástico, mal humorado, feliz ou triste?"
+        )
+
+    @property
+    def next_step(self):
+        return "ProcessUpdateBillyMood"
+
+
+class ProcessUpdateBillyMood(TerminalStep):
+    async def _process(self, message_payload):
+        user = self.session.execute(
+            select(User).where(User.phone_number == message_payload.sender_number)
+        ).scalar_one_or_none()
+
+        if not user:
+            return StepResult(message="Não encontrei um usuário com seu número")
+
+        tokens_used, billy_mood = await ai.get_chosen_billy_mood(
+            message_payload.message_body
+        )
+
+        user.billy_mood = billy_mood
+
+        self.session.commit()
+
+        return StepResult(
+            tokens_used=tokens_used,
+            message=(
+                f"Humor atualizado com sucesso! Seu novo humor agora é "
+                f"{user.billy_mood.value}"
+            ),
         )
 
 
