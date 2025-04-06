@@ -7,10 +7,12 @@ from src.amqp import AMQP_RECEIVE_MESSAGE_QUEUE
 from src.amqp import amqp_client
 from src.database import db_session_manager
 from src.database import redis_client
+from src.model import User
 from src.schema import ReceiveMessagePayload
 from src.service.conversation import ConversationManager
 
 import aio_pika
+from sqlalchemy import select
 
 
 class MessageProcessor:
@@ -60,8 +62,13 @@ class MessageProcessor:
 
                 state = self._get_conversation_state(message_payload.sender_number)
 
+                tokens_used = self._get_tokens_used(message_payload)
+
                 with db_session_manager() as session:
-                    conversation_manager = ConversationManager(message_payload, state)
+                    conversation_manager = ConversationManager(
+                        message_payload, state, tokens_used
+                    )
+
                     tokens_used, state = await conversation_manager.process()
                     session.commit()
 
@@ -77,6 +84,18 @@ class MessageProcessor:
             finally:
                 self.redis_client.release_lock(lock)
                 util.reset_logger(logger_ctx_token)
+
+    def _get_tokens_used(self, message_payload):
+        token_usage_instances = self.redis_client.get_many(
+            f"user:{message_payload.sender_number}:token_usage:*"
+        )
+
+        tokens_used = 0
+
+        for token_usage_instance in token_usage_instances:
+            tokens_used += int(token_usage_instance)
+
+        return tokens_used
 
     def _cache_token_usage(self, message_payload, tokens_used):
         self.redis_client.set(

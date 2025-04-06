@@ -105,7 +105,7 @@ def get_version_changes(version_index):
         data = json.load(f)
 
         if version_index == len(data) - 1:
-            return None
+            return []
 
         full_changelog = []
         for version_data in data[version_index + 1 :]:
