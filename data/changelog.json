@@ -11,4 +11,12 @@
             "Adicionado aviso de atualização para os usuários"
         ]
     }
+    {
+        "version": "0.1.2",
+        "changelog":[
+            "Adicionada possibilidade de alteração de nome",
+            "Adicionada possibilidade de visualizar nome e tokens usados/máximos do usuário",
+            "Adicionada funcionalidade de humor do billy - inspirado por https://www.mehumilhe.com/ e https://humilhadordegithub.vercel.app/ - cuidado com o sarcástico ;)"
+        ]
+    }
 ]

@@ -1,8 +1,11 @@
+import enum
+
 from src.util import formatted_date
 
 from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import DateTime
+from sqlalchemy import Enum
 from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
@@ -15,6 +18,14 @@ from sqlalchemy.orm import relationship
 
 class DeclarativeBaseModel(DeclarativeBase):
     pass
+
+
+class BillyMood(enum.Enum):
+    NEUTRAL = "neutral"
+    SARCASTIC = "sarcastic"
+    GRUMPY = "grumpy"
+    HAPPY = "happy"
+    SAD = "sad"
 
 
 class Category(DeclarativeBaseModel):
@@ -123,5 +134,11 @@ class User(DeclarativeBaseModel):
     tokens_per_hour = Column(Integer, nullable=False, default=20000)
     send_notification = Column(Boolean, nullable=False, default=True)
     last_version_notified = Column(Integer, nullable=False, default=0)
+    billy_mood = Column(
+        Enum(BillyMood),
+        nullable=False,
+        default=BillyMood.NEUTRAL,
+        server_default="neutral",
+    )
 
     tenant = relationship("Tenant", back_populates="users")

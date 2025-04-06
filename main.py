@@ -47,7 +47,7 @@ async def send_users_notifications_about_new_versions():
 
                 await send_message(message, phone_number=user.phone_number)
 
-        user.last_version_notified += len(versions_to_notify)
+            user.last_version_notified += len(versions_to_notify)
 
         session.commit()
 

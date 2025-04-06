@@ -1,6 +1,9 @@
 from datetime import datetime
 import json
+import math
 import os
+
+from src.model import BillyMood
 
 from google import genai
 from google.genai.types import GenerateContentConfig
@@ -101,6 +104,29 @@ async def get_courtesy_answer(user_prompt):
     return tokens, answer
 
 
+async def get_chosen_billy_mood(user_prompt):
+    system_prompt = get_prompt("CHOOSE_BILLY_MOOD")
+
+    tokens, answer = await generate_content([system_prompt, user_prompt])
+
+    billy_mood = BillyMood(answer.strip())
+
+    return tokens, billy_mood
+
+
+async def get_billy_mood_response(user_prompt, billy_mood):
+    max_length = math.ceil(len(user_prompt) * 1.2)
+
+    prompt = get_prompt(
+        "BILLY_MOOD_RESPONSE",
+        billy_mood=billy_mood,
+        message=user_prompt,
+        max_length=max_length,
+    )
+
+    return await generate_content([prompt], max_tokens=1000, temperature=0.9)
+
+
 async def generate_content(contents, schema=None, max_tokens=100, temperature=0.0):
     for _ in range(REQUEST_RETRIES):
         try:
@@ -120,4 +146,4 @@ async def generate_content(contents, schema=None, max_tokens=100, temperature=0.
         except ConnectError:
             continue
 
-    raise ConnectError
+    raise ConnectError(f"Failed to generate content after {REQUEST_RETRIES} retries")
